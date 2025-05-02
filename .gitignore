@@ -1,0 +1,45 @@
+# Ignore local files
+px4_src/
+Reference/
+
+# Ignore build, install, and log directories
+ros2_px4_ws/build/
+ros2_px4_ws/install/
+ros2_px4_ws/log/
+
+# Ignore Python cache and compiled files (often generated in src/*)
+__pycache__/
+*.pyc
+*.pyo
+
+# Ignore common Python virtual environment folders
+venv/
+.venv/
+env/
+.env/
+*/venv/
+*/.venv/
+*/env/
+*/.env/
+
+# Ignore common IDE/Editor specific files/folders
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.bak
+*.tmp
+
+# Ignore OS-specific files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Optional: Ignore compiled object files/libraries if they appear outside build/install
+# *.o
+# *.so
+# *.a
+# *.dylib
+# *.dll
+# *.exe
