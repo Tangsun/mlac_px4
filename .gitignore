@@ -1,6 +1,7 @@
 # Ignore local files
 px4_src/
 Reference/
+References/
 
 # Ignore build, install, and log directories
 ros2_px4_ws/build/

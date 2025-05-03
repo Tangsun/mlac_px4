@@ -84,23 +84,23 @@ def run_tmux_commands(session_name, commands):
 
 if __name__ == "__main__":
     # Define the session name
-    session = "px4_ros2_sim_v2" # Changed name slightly to avoid conflict
+    session = "px4_ros2_sim" # Changed name slightly to avoid conflict
 
     # Define the commands as a list of strings.
     # Include delays ('sleep X;') and '; exec bash' directly in the strings.
     # Adjust delays based on how long each step typically takes on your system.
     command_list = [
         # Pane 0: Start PX4 SITL
-        "echo '>>> Starting PX4 SITL (gz_x500)...'; cd ~/mlac/px4_src/PX4-Autopilot && make px4_sitl gz_x500; exec bash",
+        "echo '>>> Starting PX4 SITL (gz_x500)...'; cd ~/mlac_px4/px4_src/PX4-Autopilot && make px4_sitl gz_x500; exec bash",
 
         # Pane 1: Launch MAVROS (with delay)
         "sleep 15; echo '>>> Launching MAVROS...'; source /opt/ros/humble/setup.bash && ros2 launch mavros px4.launch fcu_url:=udp://:14540@localhost:14557; exec bash",
 
         # Pane 2: Launch QGroundControl (with delay)
-        "sleep 20; echo '>>> Launching QGroundControl...'; cd ~/mlac/px4_src && ./QGroundControl.AppImage; exec bash",
+        "sleep 20; echo '>>> Launching QGroundControl...'; cd ~/mlac_px4/px4_src && ./QGroundControl.AppImage; exec bash",
 
         # Pane 3: Run ROS 2 package (with delay)
-        "sleep 25; echo '>>> Running ROS 2 setpoint_publisher...'; cd ~/mlac/ros2_px4_ws && source install/setup.bash && ros2 run basic_offboard mission_controller; exec bash",
+        "sleep 25; echo '>>> Running ROS 2 setpoint_publisher...'; cd ~/mlac_px4/ros2_px4_ws && source install/setup.bash && ros2 run basic_offboard mission_controller; exec bash",
 
         # Pane 4: Check vehicle state (with delay)
         "sleep 30; echo '>>> Checking vehicle state...'; ros2 topic echo /mavros/local_position/pose"
