@@ -8,7 +8,8 @@ from rclpy.time import Time
 import asyncio # Keep asyncio if you might add async service calls later
 
 # --- Import our state definitions and manager ---
-from .state_manager import DroneState, StateManager # Uses the updated state_manager.py
+# Ensure you are using the UPDATED state_manager.py with the SIMPLER DroneState Enum
+from .state_manager import DroneState, StateManager
 
 # --- Import ROS message/service types ---
 from geometry_msgs.msg import PoseStamped, Point # Keep Point for helper function
@@ -23,6 +24,20 @@ import copy
 import numpy as np
 import os
 
+# ++ NEW: Import Enum and auto for Sub-State ++
+from enum import Enum, auto
+
+# ++ NEW: Define internal sub-states for the OFFBOARD_ACTIVE phase ++
+class OffboardSubState(Enum):
+    NONE = auto()                   # Not in an active offboard sub-state
+    REACHING_INITIAL_HOVER = auto() # Moving to takeoff altitude/position
+    AT_INITIAL_HOVER = auto()       # Stable at initial hover (e.g., if no trajectory loaded)
+    REACHING_TRAJ_START = auto()    # Moving from initial hover to trajectory start point
+    TRACKING_TRAJECTORY = auto()    # Following the loaded trajectory points
+    AT_FINAL_HOVER = auto()         # Reached end of trajectory, hovering at final point
+# ++ END NEW SECTION ++
+
+
 class MissionControllerNode(Node):
 
     def __init__(self):
@@ -35,185 +50,169 @@ class MissionControllerNode(Node):
         self.declare_parameter('target_y', 0.0)
         self.declare_parameter('target_z', 1.5)
         self.declare_parameter('coordinate_frame', 'map')
-        self.declare_parameter('altitude_reach_threshold', 0.2)
+        # -- REMOVED: altitude_reach_threshold --
         self.declare_parameter('descent_rate', 0.3)
         self.declare_parameter('landing_x', 0.0)
         self.declare_parameter('landing_y', 0.0)
+        # ++ ADDED: Parameter for hover check ++
+        self.declare_parameter('hover_pos_threshold', 0.15) # meters tolerance for position hold
+        # ++ Path used from user's provided code ++
         self.declare_parameter('trajectory_file', 'src/basic_offboard/basic_offboard/traj_data/circle_trajectory_50hz.npy')
 
         # --- Get Parameters ---
-        # Node operating rates are set by parameters
         publish_rate = self.get_parameter('publish_rate_hz').value
         state_machine_rate = self.get_parameter('state_machine_rate_hz').value
-        # Ensure rates are positive
         if publish_rate <= 0 or state_machine_rate <= 0:
              raise ValueError("publish_rate_hz and state_machine_rate_hz must be positive")
         state_machine_period = 1.0 / state_machine_rate
 
-        # Other parameters
         self.target_altitude = self.get_parameter('target_z').value
         self.coordinate_frame = self.get_parameter('coordinate_frame').value
-        self.altitude_reach_threshold = self.get_parameter('altitude_reach_threshold').value
+        # -- REMOVED: altitude_reach_threshold --
         self.descent_rate = self.get_parameter('descent_rate').value
         self.descent_step = self.descent_rate * state_machine_period
         self.landing_target_x = self.get_parameter('landing_x').value
         self.landing_target_y = self.get_parameter('landing_y').value
+        # ++ Get hover threshold ++
+        self.hover_pos_threshold = self.get_parameter('hover_pos_threshold').value
+        self.hover_pos_threshold_sq = self.hover_pos_threshold ** 2 # Pre-calculate squared value
         self.trajectory_file_path = self.get_parameter('trajectory_file').value
 
         # --- Load Pre-computed Trajectory ---
         self.precomputed_trajectory = None # Full loaded data
         self.trajectory_duration = 0.0     # Duration derived from file
         self.traj_times = None
-        self.traj_pos_x = None
-        self.traj_pos_y = None
-        self.traj_pos_z = None
-        self.traj_vel_x = None
-        self.traj_vel_y = None
-        self.traj_vel_z = None
+        self.traj_pos_x, self.traj_pos_y, self.traj_pos_z = None, None, None
+        self.traj_vel_x, self.traj_vel_y, self.traj_vel_z = None, None, None
+        # ++ ADDED: Store Start/Final Poses ++
+        self.trajectory_start_pose: PoseStamped | None = None
+        self.trajectory_final_pose: PoseStamped | None = None
         try:
-            # Resolve path
+            # Resolve path (updated logic)
+            ws_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))) # Navigate up from basic_offboard/basic_offboard
             if not os.path.isabs(self.trajectory_file_path):
-                 self.trajectory_file_path = os.path.abspath(self.trajectory_file_path)
+                 potential_path = os.path.join(ws_root, self.trajectory_file_path)
+                 if os.path.exists(potential_path):
+                      self.trajectory_file_path = potential_path
+                 else:
+                      self.trajectory_file_path = os.path.abspath(self.trajectory_file_path)
 
             if os.path.exists(self.trajectory_file_path):
                 self.get_logger().info(f"Loading trajectory from: {self.trajectory_file_path}")
                 loaded_data = np.load(self.trajectory_file_path)
 
-                # --- Validation ---
-                if loaded_data.ndim != 2 or loaded_data.shape[1] < 7:
-                    raise ValueError(f"Trajectory file needs >= 7 columns: [time, px, py, pz, vx, vy, vz]. Found shape: {loaded_data.shape}")
-                if loaded_data.shape[0] < 2:
-                    raise ValueError(f"Trajectory file needs at least 2 points to calculate dt. Found shape: {loaded_data.shape}")
+                if loaded_data.ndim != 2 or loaded_data.shape[1] < 7: raise ValueError(f"Trajectory file needs >= 7 columns. Found shape: {loaded_data.shape}")
+                if loaded_data.shape[0] < 2: raise ValueError(f"Trajectory file needs >= 2 points. Found shape: {loaded_data.shape}")
 
-                # --- Store Data Columns ---
                 self.precomputed_trajectory = loaded_data
                 self.traj_times = loaded_data[:, 0]
-                self.traj_pos_x = loaded_data[:, 1]
-                self.traj_pos_y = loaded_data[:, 2]
-                self.traj_pos_z = loaded_data[:, 3]
-                self.traj_vel_x = loaded_data[:, 4]
-                self.traj_vel_y = loaded_data[:, 5]
-                self.traj_vel_z = loaded_data[:, 6]
+                self.traj_pos_x, self.traj_pos_y, self.traj_pos_z = loaded_data[:, 1], loaded_data[:, 2], loaded_data[:, 3]
+                self.traj_vel_x, self.traj_vel_y, self.traj_vel_z = loaded_data[:, 4], loaded_data[:, 5], loaded_data[:, 6]
 
-                # --- Calculate and Log Trajectory Properties ---
-                # Duration
-                self.trajectory_duration = self.traj_times[-1] - self.traj_times[0] # Use difference for accuracy
-                if self.trajectory_duration < 0: # Basic sanity check
-                     raise ValueError("Trajectory time data is not monotonically increasing.")
+                self.trajectory_duration = self.traj_times[-1] - self.traj_times[0]
+                if self.trajectory_duration < 0: raise ValueError("Trajectory time data not monotonic.")
 
-                # Sampling Info
                 time_steps = np.diff(self.traj_times)
-                mean_dt = np.mean(time_steps)
-                std_dt = np.std(time_steps)
-                estimated_freq = 1.0 / mean_dt if mean_dt > 1e-9 else 0.0 # Avoid division by zero
+                mean_dt, std_dt = np.mean(time_steps), np.std(time_steps)
+                estimated_freq = 1.0 / mean_dt if mean_dt > 1e-9 else 0.0
 
                 self.get_logger().info(f"  Trajectory Loaded: Duration={self.trajectory_duration:.3f}s, Steps={len(self.traj_times)}")
                 self.get_logger().info(f"  Detected Sampling: Mean dt={mean_dt:.4f}s (~{estimated_freq:.2f} Hz), Std dt={std_dt:.6f}s")
+                if std_dt > mean_dt * 0.1 and mean_dt > 1e-9: self.get_logger().warn(f"  Inconsistent time steps detected.")
+                if abs(estimated_freq - state_machine_rate) > 0.1 * state_machine_rate: self.get_logger().warn(f"  Trajectory sampling rate (~{estimated_freq:.2f} Hz) differs significantly from node logic rate ({state_machine_rate:.2f} Hz).")
 
-                # Warn if sampling seems inconsistent
-                if std_dt > mean_dt * 0.1 and mean_dt > 1e-9: # Warning if std dev > 10% of mean dt
-                    self.get_logger().warn(f"  Inconsistent time steps detected in trajectory file (std dev > 10% of mean). Interpolation might be less accurate.")
-                # Warn if detected frequency differs significantly from node's logic rate
-                if abs(estimated_freq - state_machine_rate) > 0.1 * state_machine_rate:
-                     self.get_logger().warn(f"  Trajectory file sampling rate (~{estimated_freq:.2f} Hz) differs significantly from node's logic rate ({state_machine_rate:.2f} Hz).")
-
-                # --- End Calculation/Logging ---
+                # ++ Store start/final poses ++
+                start_pos = Point(x=self.traj_pos_x[0], y=self.traj_pos_y[0], z=self.traj_pos_z[0])
+                self.trajectory_start_pose = self._create_pose_stamped_from_point(start_pos)
+                final_pos = Point(x=self.traj_pos_x[-1], y=self.traj_pos_y[-1], z=self.traj_pos_z[-1])
+                self.trajectory_final_pose = self._create_pose_stamped_from_point(final_pos)
+                self.get_logger().info(f"  Trajectory Start: ({start_pos.x:.2f}, {start_pos.y:.2f}, {start_pos.z:.2f})")
+                self.get_logger().info(f"  Trajectory End:   ({final_pos.x:.2f}, {final_pos.y:.2f}, {final_pos.z:.2f})")
 
             else:
                  self.get_logger().error(f"Trajectory file not found at {self.trajectory_file_path}! Cannot follow trajectory.")
 
         except Exception as e:
             self.get_logger().error(f"Failed to load or parse trajectory file '{self.trajectory_file_path}': {e}")
-            # Ensure all related attributes are None if loading fails
-            self.precomputed_trajectory = None
-            self.trajectory_duration = 0.0
+            self.precomputed_trajectory = self.trajectory_start_pose = self.trajectory_final_pose = None
             self.traj_times = self.traj_pos_x = self.traj_pos_y = self.traj_pos_z = None
             self.traj_vel_x = self.traj_vel_y = self.traj_vel_z = None
+            self.trajectory_duration = 0.0
 
-        # Target pose for initial hover
-        self.hover_pose = PoseStamped()
-        self.hover_pose.header.frame_id = self.coordinate_frame
-        self.hover_pose.pose.position.x = self.get_parameter('target_x').value
-        self.hover_pose.pose.position.y = self.get_parameter('target_y').value
-        self.hover_pose.pose.position.z = self.target_altitude
-        self.hover_pose.pose.orientation.w = 1.0 # Level flight
+        # Target pose for initial hover (using parameters)
+        self.initial_hover_target = PoseStamped()
+        self.initial_hover_target.header.frame_id = self.coordinate_frame
+        self.initial_hover_target.pose.position.x = self.get_parameter('target_x').value
+        self.initial_hover_target.pose.position.y = self.get_parameter('target_y').value
+        self.initial_hover_target.pose.position.z = self.target_altitude # Use target_altitude parameter
+        self.initial_hover_target.pose.orientation.w = 1.0
 
-        # --- QoS Profiles --- (Unchanged)
+        # --- QoS Profiles ---
         qos_profile_state = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.VOLATILE, history=HistoryPolicy.KEEP_LAST, depth=1)
         qos_profile_setpoint = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, durability=DurabilityPolicy.VOLATILE, history=HistoryPolicy.KEEP_LAST, depth=1)
         qos_profile_best_effort = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, durability=DurabilityPolicy.VOLATILE, history=HistoryPolicy.KEEP_LAST, depth=1)
 
-        # --- Instantiate State Manager --- (Unchanged)
-        self.state_manager = StateManager(self.get_logger(),
-                                           target_altitude=self.target_altitude,
-                                           altitude_threshold=self.altitude_reach_threshold)
+        # --- Instantiate State Manager ---
+        # Pass the clock object!
+        self.state_manager = StateManager(self.get_logger(), self.get_clock(), ground_threshold=0.15)
 
-        # --- MAVROS Subscribers --- (Unchanged)
+        # --- MAVROS Subscribers/Publisher/Service Clients ---
         self.state_sub = self.create_subscription(State, '/mavros/state', self.state_callback, qos_profile_state)
         self.local_pos_sub = self.create_subscription(PoseStamped, '/mavros/local_position/pose', self.local_pos_callback, qos_profile_best_effort)
-
-        # --- MAVROS Publisher --- (Unchanged)
         self.setpoint_pub = self.create_publisher(PoseStamped, '/mavros/setpoint_position/local', qos_profile_setpoint)
-
-        # --- MAVROS Service Clients --- (Unchanged)
         self.arming_client = self.create_client(CommandBool, '/mavros/cmd/arming')
         self.set_mode_client = self.create_client(SetMode, '/mavros/set_mode')
 
         # --- Node State / Data ---
         self.current_mavros_state = State()
         self.current_local_pos = PoseStamped()
-        self.current_drone_state = DroneState.INIT
+        self.current_drone_state = DroneState.INIT # Main state from StateManager
+        # ++ NEW: Internal sub-state variable ++
+        self.offboard_sub_state = OffboardSubState.NONE
         self.setpoint_to_publish = PoseStamped()
         self.setpoint_streaming_active = False
-        self.altitude_reached = False
+        # -- REMOVED: self.altitude_reached --
         self.landing_setpoint_pose = None
-        # ++ MODIFIED: trajectory_start_time only ++
-        self.trajectory_start_time: Time | None = None
+        self.trajectory_start_time: Time | None = None # Used only for TRACKING state timing
 
-        # -- REMOVED: Dummy trajectory variables --
-        # self.dummy_trajectory = self._create_dummy_trajectory()
-        # self.current_trajectory_index = 0
-
-        # ++ MODIFIED: Inform state manager based on actual loading ++
+        # Inform state manager about trajectory status
         self.state_manager.set_trajectory_status(loaded=(self.precomputed_trajectory is not None), finished=False)
 
-        # --- Timers --- (Rates updated)
+        # --- Timers ---
         self.setpoint_timer = self.create_timer(1.0 / publish_rate, self.publish_setpoint_loop)
         self.mission_logic_timer = self.create_timer(state_machine_period, self.run_mission_logic)
 
-        # ++ MODIFIED: Logging ++
-        self.get_logger().info("Mission Controller Node (Precomputed Trajectory @ 50Hz) Initialized.")
+        # --- Logging ---
+        self.get_logger().info(f"Mission Controller Node Initialized.")
+        self.get_logger().info(f"  Node Rates: Logic={state_machine_rate:.1f}Hz, Publish={publish_rate:.1f}Hz")
         if self.precomputed_trajectory is None:
-             self.get_logger().warn("No trajectory loaded, will only hover if Offboard is activated.")
-        else:
-             self.get_logger().info(f"Trajectory loaded. Duration: {self.trajectory_duration:.2f}s.")
-        self.get_logger().info("Please use QGroundControl to ARM and set OFFBOARD mode.")
-        # ++ END MODIFICATION ++
+             self.get_logger().warn("  No trajectory loaded/found. Will only hover if Offboard is activated.")
+        self.get_logger().info("  Please use QGroundControl to ARM and set OFFBOARD mode.")
 
 
-    # -- REMOVED: _create_dummy_trajectory --
-
-    # --- Callback Functions --- (Unchanged)
+    # --- Callback Functions ---
     def state_callback(self, msg):
         self.current_mavros_state = msg
 
     def local_pos_callback(self, msg):
+        # Store the latest position
         self.current_local_pos = msg
-        # Altitude check moved to run_mission_logic
 
-    # --- Setpoint Publishing Loop & Helpers --- (Unchanged)
+    # --- Setpoint Publishing Loop & Helpers ---
     def publish_setpoint_loop(self):
         if not self.setpoint_streaming_active: return
+        # Update timestamp just before publishing
         self.setpoint_to_publish.header.stamp = self.get_clock().now().to_msg()
         self.setpoint_to_publish.header.frame_id = self.coordinate_frame
         self.setpoint_pub.publish(self.setpoint_to_publish)
 
-    def start_setpoint_streaming(self, initial_setpoint: PoseStamped):
+    def start_setpoint_streaming(self, target_setpoint: PoseStamped):
+        # Always update the target first
+        self.update_streaming_setpoint(target_setpoint)
+        # Start streaming only if not already active
         if not self.setpoint_streaming_active:
-            self.get_logger().debug(f"Starting setpoint streaming to target: X={initial_setpoint.pose.position.x:.2f}, Y={initial_setpoint.pose.position.y:.2f}, Z={initial_setpoint.pose.position.z:.2f}")
-            self.setpoint_to_publish = copy.deepcopy(initial_setpoint)
+            self.get_logger().debug(f"Starting setpoint streaming to target: P({target_setpoint.pose.position.x:.2f}, {target_setpoint.pose.position.y:.2f}, {target_setpoint.pose.position.z:.2f})")
             self.setpoint_streaming_active = True
-        self.update_streaming_setpoint(initial_setpoint) # Ensure target is updated
 
     def update_streaming_setpoint(self, new_setpoint_pose: PoseStamped):
          self.setpoint_to_publish = copy.deepcopy(new_setpoint_pose)
@@ -223,14 +222,13 @@ class MissionControllerNode(Node):
             self.get_logger().info("Stopping setpoint streaming.")
             self.setpoint_streaming_active = False
 
-    # --- MAVROS Service Call Helpers --- (Unchanged - still synchronous and unused in main flow)
+    # --- MAVROS Service Call Helpers --- (Keep synchronous versions for now)
     def call_arming_service_sync(self, value: bool):
         if not self.arming_client.service_is_ready(): self.get_logger().error("Arming service client not available!"); return False
         req = CommandBool.Request(); req.value = value
         self.get_logger().info(f"Requesting {'Arming' if value else 'Disarming'} (sync)...")
         try:
-            # Note: Using synchronous call here, potentially blocking. Consider async if used.
-            response = self.arming_client.call(req)
+            response = self.arming_client.call(req) # Blocking call
             if response is None: self.get_logger().error("Arming service call failed (sync - no response/timeout)."); return False
             if response.success: self.get_logger().info(f"Arming request successful (sync): Result={response.result}"); return True
             else: self.get_logger().error(f"Arming request failed (sync): Success={response.success}, Result={response.result}"); return False
@@ -241,29 +239,18 @@ class MissionControllerNode(Node):
         req = SetMode.Request(); req.custom_mode = mode; req.base_mode = 0
         self.get_logger().info(f"Requesting mode: {mode} (sync)...")
         try:
-            # Note: Using synchronous call here, potentially blocking. Consider async if used.
-            response = self.set_mode_client.call(req)
+            response = self.set_mode_client.call(req) # Blocking call
             if response is None: self.get_logger().error("Set_mode service call failed (sync - no response/timeout)."); return False
             if response.mode_sent: self.get_logger().info(f"Mode change request '{mode}' sent successfully by MAVROS (sync)."); return True
             else: self.get_logger().error(f"MAVROS failed to send mode change request '{mode}' (sync)."); return False
         except Exception as e: self.get_logger().error(f"Set_mode service call failed (sync): {e}\n{traceback.format_exc()}"); return False
 
 
-    # ++ NEW: Trajectory Interpolation Function ++
+    # --- Trajectory Interpolation Function ---
     def _lookup_trajectory_point(self, elapsed_time_sec: float) -> tuple[float, float, float, float, float, float] | None:
-        """
-        Interpolates the trajectory point (pos+vel) for the given time
-        from the precomputed data arrays.
-        """
-        if self.traj_times is None: # Check if data was loaded successfully
-            self.get_logger().warn("_lookup_trajectory_point called but no trajectory data available!", throttle_duration_sec=5.0)
-            return None # Indicate failure
-
-        # Clamp elapsed time to the trajectory's time range
-        # np.clip is important to handle potential slight timing overruns
+        """Interpolates the trajectory point (pos+vel) for the given time."""
+        if self.traj_times is None: return None
         elapsed_time_sec = np.clip(elapsed_time_sec, self.traj_times[0], self.traj_times[-1])
-
-        # Use NumPy's linear interpolation for each component
         try:
             interp_x = np.interp(elapsed_time_sec, self.traj_times, self.traj_pos_x)
             interp_y = np.interp(elapsed_time_sec, self.traj_times, self.traj_pos_y)
@@ -271,204 +258,208 @@ class MissionControllerNode(Node):
             interp_vx = np.interp(elapsed_time_sec, self.traj_times, self.traj_vel_x)
             interp_vy = np.interp(elapsed_time_sec, self.traj_times, self.traj_vel_y)
             interp_vz = np.interp(elapsed_time_sec, self.traj_times, self.traj_vel_z)
-            # Return tuple: (px, py, pz, vx, vy, vz)
-            return (float(interp_x), float(interp_y), float(interp_z),
-                    float(interp_vx), float(interp_vy), float(interp_vz))
-        except Exception as e:
-             self.get_logger().error(f"Interpolation failed: {e}")
-             return None # Indicate failure
-    # ++ END NEW FUNCTION ++
+            return (float(interp_x), float(interp_y), float(interp_z), float(interp_vx), float(interp_vy), float(interp_vz))
+        except Exception as e: self.get_logger().error(f"Interpolation failed: {e}"); return None
+
+    # ++ NEW HELPER: Check if close to a target pose ++
+    def _is_at_target_pose(self, target_pose: PoseStamped, pos_threshold_sq: float) -> bool:
+        """Checks if the drone is close to the target XY and Z position."""
+        if not self.current_local_pos.header.stamp.sec > 0: return False
+        dx = self.current_local_pos.pose.position.x - target_pose.pose.position.x
+        dy = self.current_local_pos.pose.position.y - target_pose.pose.position.y
+        dz = self.current_local_pos.pose.position.z - target_pose.pose.position.z
+        dist_sq = dx*dx + dy*dy + dz*dz
+        return dist_sq < pos_threshold_sq
 
 
-    # --- Main Mission Logic Loop (Modified for Precomputed Trajectory) ---
+    # --- Main Mission Logic Loop (MODIFIED to use Sub-States) ---
     def run_mission_logic(self):
-        """
-        Periodically checks the state manager and performs actions
-        based on the *observed* current state. Uses precomputed trajectory.
-        """
-        # 1. Ask the state manager to determine the current state
+        # 1. Get overall state from StateManager
         new_state = self.state_manager.update_state(
-            self.current_mavros_state,
-            self.current_local_pos
+            self.current_mavros_state, self.current_local_pos
         )
 
-        # --- Handle state transitions --- (largely unchanged, ensures flags reset)
+        # --- State Transition Logic ---
         if new_state != self.current_drone_state:
             self.get_logger().info(f"Mission Controller: State change {self.current_drone_state.name} -> {new_state.name}")
+
+            # Reset sub-state when entering OFFBOARD_ACTIVE
             if new_state == DroneState.OFFBOARD_ACTIVE:
-                self.altitude_reached = False
+                self.offboard_sub_state = OffboardSubState.REACHING_INITIAL_HOVER
                 self.trajectory_start_time = None
                 self.state_manager.set_trajectory_status(loaded=(self.precomputed_trajectory is not None), finished=False)
-            if self.current_drone_state == DroneState.OFFBOARD_ACTIVE and new_state != DroneState.OFFBOARD_ACTIVE:
-                 self.trajectory_start_time = None # Clear start time if we leave the state for any reason
-            if new_state == DroneState.DESCENDING:
-                self.trajectory_start_time = None # Ensure timer is cleared before descent
-                # Initialize landing setpoint (Unchanged)
+                self.get_logger().info(f"  Entering Offboard - Initial SubState: {self.offboard_sub_state.name}")
+            elif self.current_drone_state == DroneState.OFFBOARD_ACTIVE: # Leaving OFFBOARD_ACTIVE
+                 self.get_logger().info(f"  Leaving Offboard - Resetting SubState from {self.offboard_sub_state.name}")
+                 self.offboard_sub_state = OffboardSubState.NONE
+
+            # Initialize landing setpoint when entering LANDING state
+            if new_state == DroneState.LANDING and self.current_drone_state != DroneState.LANDING:
+                # Land at final trajectory XY if available, else current XY
+                landing_x = self.trajectory_final_pose.pose.position.x if self.trajectory_final_pose else self.current_local_pos.pose.position.x
+                landing_y = self.trajectory_final_pose.pose.position.y if self.trajectory_final_pose else self.current_local_pos.pose.position.y
                 self.landing_setpoint_pose = PoseStamped()
                 self.landing_setpoint_pose.header.frame_id = self.coordinate_frame
-                self.landing_setpoint_pose.pose.position.x = self.landing_target_x
-                self.landing_setpoint_pose.pose.position.y = self.landing_target_y
-                self.landing_setpoint_pose.pose.position.z = self.current_local_pos.pose.position.z
+                self.landing_setpoint_pose.pose.position.x = landing_x
+                self.landing_setpoint_pose.pose.position.y = landing_y
+                self.landing_setpoint_pose.pose.position.z = self.current_local_pos.pose.position.z if self.current_local_pos.header.stamp.sec > 0 else self.target_altitude
                 self.landing_setpoint_pose.pose.orientation.w = 1.0
-                self.get_logger().info(f"Initiating descent towards ({self.landing_target_x:.2f}, {self.landing_target_y:.2f}) from Z={self.landing_setpoint_pose.pose.position.z:.2f}m")
+                self.get_logger().info(f"  Initiating Landing towards ({landing_x:.2f}, {landing_y:.2f})")
 
-            self.current_drone_state = new_state
+            self.current_drone_state = new_state # Update main state
 
-
-        # 2. Perform actions based on the *current observed* state
+        # --- Action Logic based on Main State ---
         try:
-            # Start streaming hover pose when ready for Offboard (Unchanged)
+            # Handle ARMED_WAITING_FOR_MODE
             if self.current_drone_state == DroneState.ARMED_WAITING_FOR_MODE:
-                self.start_setpoint_streaming(self.hover_pose)
+                self.start_setpoint_streaming(self.initial_hover_target)
 
-            # ++ MODIFIED: OFFBOARD_ACTIVE Logic ++
+            # ++ Handle OFFBOARD_ACTIVE using internal sub-states ++
             elif self.current_drone_state == DroneState.OFFBOARD_ACTIVE:
-                # Check if target altitude has been reached (Unchanged)
-                if not self.altitude_reached:
-                    altitude_error = abs(self.current_local_pos.pose.position.z - self.target_altitude)
-                    self.altitude_reached = altitude_error < self.altitude_reach_threshold
-                    if self.altitude_reached:
-                        self.get_logger().info("Mission Controller: Altitude reached.")
-                        if self.precomputed_trajectory is None: # Check if trajectory is available
-                             self.get_logger().warn("Altitude reached, but no trajectory loaded. Holding hover.")
+                next_sub_state = self.offboard_sub_state
+
+                # --- SubState: REACHING_INITIAL_HOVER ---
+                if self.offboard_sub_state == OffboardSubState.REACHING_INITIAL_HOVER:
+                    self.start_setpoint_streaming(self.initial_hover_target)
+                    self.get_logger().debug(f"SubState: REACHING_INITIAL_HOVER. Target Z: {self.initial_hover_target.pose.position.z:.2f}m", throttle_duration_sec=2.0)
+                    if self._is_at_target_pose(self.initial_hover_target, self.hover_pos_threshold_sq):
+                        self.get_logger().info("  Reached initial hover point.")
+                        if self.precomputed_trajectory is not None and self.trajectory_start_pose is not None:
+                            next_sub_state = OffboardSubState.REACHING_TRAJ_START
+                        else:
+                            self.get_logger().warn("  No valid trajectory loaded/start point found. Staying at initial hover.")
+                            next_sub_state = OffboardSubState.AT_INITIAL_HOVER
+
+                # --- SubState: AT_INITIAL_HOVER ---
+                elif self.offboard_sub_state == OffboardSubState.AT_INITIAL_HOVER:
+                     self.start_setpoint_streaming(self.initial_hover_target)
+                     self.get_logger().info("SubState: AT_INITIAL_HOVER (Holding position).", throttle_duration_sec=5.0)
+
+                # --- SubState: REACHING_TRAJ_START ---
+                elif self.offboard_sub_state == OffboardSubState.REACHING_TRAJ_START:
+                    if self.trajectory_start_pose:
+                        self.start_setpoint_streaming(self.trajectory_start_pose)
+                        self.get_logger().debug(f"SubState: REACHING_TRAJ_START. Target: ({self.trajectory_start_pose.pose.position.x:.2f}, {self.trajectory_start_pose.pose.position.y:.2f}, {self.trajectory_start_pose.pose.position.z:.2f})", throttle_duration_sec=2.0)
+                        if self._is_at_target_pose(self.trajectory_start_pose, self.hover_pos_threshold_sq):
+                            self.get_logger().info("  Reached trajectory start point.")
+                            next_sub_state = OffboardSubState.TRACKING_TRAJECTORY
                     else:
-                        # Still climbing/holding hover altitude
-                        self.start_setpoint_streaming(self.hover_pose)
-                        self.get_logger().debug(f"Mission Controller: OFFBOARD ACTIVE - Holding hover / climbing. Current Z: {self.current_local_pos.pose.position.z:.2f}m", throttle_duration_sec=2.0)
+                        self.get_logger().error("In REACHING_TRAJ_START but trajectory_start_pose is None! Holding initial hover.")
+                        self.start_setpoint_streaming(self.initial_hover_target)
+                        next_sub_state = OffboardSubState.AT_INITIAL_HOVER
 
-                # --- Altitude reached: Follow precomputed trajectory (if loaded) ---
-                if self.altitude_reached and self.precomputed_trajectory is not None:
+                # --- SubState: TRACKING_TRAJECTORY ---
+                elif self.offboard_sub_state == OffboardSubState.TRACKING_TRAJECTORY:
                     if self.trajectory_start_time is None:
-                        # Start the timer only once when trajectory begins
-                        self.get_logger().info("Mission Controller: Starting precomputed trajectory.")
+                        self.get_logger().info("  SubState: TRACKING_TRAJECTORY starting.")
                         self.trajectory_start_time = self.get_clock().now()
+                        # Add start_rosbag_recording() here later
 
-                    # Calculate elapsed time since trajectory started
                     elapsed_time = (self.get_clock().now() - self.trajectory_start_time).nanoseconds / 1e9
 
-                    # Check if trajectory duration exceeded
                     if elapsed_time >= self.trajectory_duration:
-                        if not self.state_manager.trajectory_finished: # Prevent multiple logs/calls
-                            self.get_logger().info(f"Mission Controller: Precomputed trajectory finished (elapsed: {elapsed_time:.2f}s >= duration: {self.trajectory_duration:.2f}s).")
+                        if not self.state_manager.trajectory_finished:
+                            self.get_logger().info(f"  SubState: TRACKING_TRAJECTORY finished (elapsed {elapsed_time:.2f}s >= duration {self.trajectory_duration:.2f}s).")
                             self.state_manager.set_trajectory_status(loaded=True, finished=True)
-                            # Publish the very last point from the data as the final setpoint before descent starts
-                            target_data = self._lookup_trajectory_point(self.trajectory_duration)
-                            if target_data:
-                                final_pose = self._create_pose_stamped_from_point(Point(x=target_data[0], y=target_data[1], z=target_data[2]))
-                                self.update_streaming_setpoint(final_pose) # Update target
-                                self.start_setpoint_streaming(final_pose) # Ensure it's streaming
-                        # No need to reset trajectory_start_time here, state manager handles transition
+                            # Add stop_rosbag_recording() here later
+                            next_sub_state = OffboardSubState.AT_FINAL_HOVER
                     else:
-                        # Lookup/interpolate the trajectory point for the current time
                         target_data = self._lookup_trajectory_point(elapsed_time)
-
                         if target_data:
-                             # Extract position for PoseStamped
-                             px, py, pz = target_data[0], target_data[1], target_data[2]
-                             # vx, vy, vz are available in target_data[3:6] if needed later
-
-                             target_pose_msg = self._create_pose_stamped_from_point(Point(x=px, y=py, z=pz))
-                             self.update_streaming_setpoint(target_pose_msg)
-                             self.start_setpoint_streaming(target_pose_msg) # Ensure streaming is active
-
-                             self.get_logger().debug(f"Mission Controller: Following trajectory - t={elapsed_time:.2f}s -> Target(X:{px:.2f}, Y:{py:.2f}, Z:{pz:.2f})", throttle_duration_sec=1.0)
+                            px, py, pz = target_data[0:3]
+                            target_pose_msg = self._create_pose_stamped_from_point(Point(x=px, y=py, z=pz))
+                            self.update_streaming_setpoint(target_pose_msg)
+                            self.start_setpoint_streaming(target_pose_msg)
+                            self.get_logger().debug(f"SubState: TRACKING_TRAJECTORY t={elapsed_time:.2f}s", throttle_duration_sec=1.0)
                         else:
-                            # If lookup failed, hold hover pose
-                            self.get_logger().warn("Trajectory lookup failed, holding hover pose.", throttle_duration_sec=5.0)
-                            self.update_streaming_setpoint(self.hover_pose)
-                            self.start_setpoint_streaming(self.hover_pose)
+                            self.get_logger().warn("Trajectory lookup failed during tracking! Holding last valid setpoint.", throttle_duration_sec=2.0)
+                            self.start_setpoint_streaming(self.setpoint_to_publish)
 
-                # --- Altitude reached but NO trajectory loaded: Just hover --- (Unchanged)
-                elif self.altitude_reached and self.precomputed_trajectory is None:
-                     self.start_setpoint_streaming(self.hover_pose)
-                     self.get_logger().info("Mission Controller: OFFBOARD ACTIVE - Altitude reached, hovering (no trajectory loaded).", throttle_duration_sec=5.0)
-            # ++ END MODIFIED SECTION ++
+                # --- SubState: AT_FINAL_HOVER ---
+                elif self.offboard_sub_state == OffboardSubState.AT_FINAL_HOVER:
+                     if self.trajectory_final_pose:
+                        self.start_setpoint_streaming(self.trajectory_final_pose)
+                        self.get_logger().info("SubState: AT_FINAL_HOVER. Waiting for StateManager to trigger LANDING.", throttle_duration_sec=5.0)
+                     else:
+                        self.get_logger().warn("In AT_FINAL_HOVER but trajectory_final_pose is None! Holding initial hover.", throttle_duration_sec=5.0)
+                        self.start_setpoint_streaming(self.initial_hover_target)
+
+                # --- Update internal sub-state if it changed ---
+                if next_sub_state != self.offboard_sub_state:
+                     self.get_logger().info(f"  Offboard SubState change: {self.offboard_sub_state.name} -> {next_sub_state.name}")
+                     self.offboard_sub_state = next_sub_state
+            # ++ END OFFBOARD_ACTIVE ++
 
 
-            # Handle controlled descent (Unchanged)
-            elif self.current_drone_state == DroneState.DESCENDING:
+            # Handle LANDING state
+            elif self.current_drone_state == DroneState.LANDING:
                 if self.landing_setpoint_pose is not None:
                     self.landing_setpoint_pose.pose.position.z -= self.descent_step
-                    self.landing_setpoint_pose.pose.position.z = max(self.landing_setpoint_pose.pose.position.z, -0.1)
-                    self.landing_setpoint_pose.pose.position.x = self.landing_target_x
-                    self.landing_setpoint_pose.pose.position.y = self.landing_target_y
+                    current_target_z = max(self.landing_setpoint_pose.pose.position.z, -0.1)
+                    self.landing_setpoint_pose.pose.position.z = current_target_z
                     self.update_streaming_setpoint(self.landing_setpoint_pose)
-                    self.start_setpoint_streaming(self.landing_setpoint_pose) # Ensure streaming
-                    self.get_logger().info(f"Mission Controller: DESCENDING - Target Z: {self.landing_setpoint_pose.pose.position.z:.2f}m", throttle_duration_sec=1.0)
+                    self.start_setpoint_streaming(self.landing_setpoint_pose)
+                    self.get_logger().info(f"Mission Controller: LANDING - Commanding Z: {current_target_z:.2f}m", throttle_duration_sec=1.0)
                 else:
-                    self.get_logger().error("Mission Controller: In DESCENDING state but landing_setpoint_pose is None!")
+                    self.get_logger().error("Mission Controller: In LANDING state but landing_setpoint_pose is None!")
                     self.stop_setpoint_streaming()
 
-            # Keep streaming when grounded (Unchanged)
-            elif self.current_drone_state == DroneState.GROUNDED:
-                if self.landing_setpoint_pose is not None:
-                    self.landing_setpoint_pose.pose.position.z = max(self.landing_setpoint_pose.pose.position.z, -0.1)
-                    self.landing_setpoint_pose.pose.position.x = self.landing_target_x
-                    self.landing_setpoint_pose.pose.position.y = self.landing_target_y
-                    self.start_setpoint_streaming(self.landing_setpoint_pose) # Keep streaming
-                    self.get_logger().info("Mission Controller: Landed. Publishing final setpoint. Waiting for manual DISARM via QGC.", throttle_duration_sec=5.0)
-                else:
-                    self.stop_setpoint_streaming()
-
-
-            # Stop streaming when mission complete or in initial states (Unchanged)
-            elif self.current_drone_state in [DroneState.MISSION_COMPLETE, DroneState.INIT, DroneState.IDLE, DroneState.WAITING_FOR_ARM]:
-                self.stop_setpoint_streaming()
-                if self.current_drone_state == DroneState.MISSION_COMPLETE:
-                    self.get_logger().info("Mission Controller: Mission complete. Setpoint streaming stopped.", throttle_duration_sec=10.0)
+            # Handle other states
+            elif self.current_drone_state in [DroneState.MISSION_COMPLETE, DroneState.INIT, DroneState.IDLE]:
+                 self.stop_setpoint_streaming()
+                 if self.current_drone_state == DroneState.MISSION_COMPLETE:
+                     self.get_logger().info("Mission Controller: Mission complete.", throttle_duration_sec=10.0)
 
         except Exception as e:
-            self.get_logger().error(f"Error in mission logic loop: {e}\n{traceback.format_exc()}")
-            self.stop_setpoint_streaming() # Stop streaming on error
+             self.get_logger().error(f"Error in mission logic loop: {e}\n{traceback.format_exc()}")
+             self.stop_setpoint_streaming()
 
 
-    # -- REMOVED: _is_close_to_target method --
-
-    # --- Helper to create PoseStamped (Unchanged) ---
+    # --- Helper to create PoseStamped ---
     def _create_pose_stamped_from_point(self, point: Point) -> PoseStamped:
         pose = PoseStamped()
         pose.header.frame_id = self.coordinate_frame
-        # Stamp is updated in publish_setpoint_loop
         pose.pose.position.x = point.x
         pose.pose.position.y = point.y
         pose.pose.position.z = point.z
         pose.pose.orientation.w = 1.0 # Keep yaw constant for now
         return pose
 
-    # --- destroy_node (Unchanged) ---
+    # --- destroy_node ---
     def destroy_node(self):
         self.get_logger().info("Shutting down Mission Controller Node...")
         self.stop_setpoint_streaming()
-        # Cancel timers explicitly on destroy
-        if hasattr(self, 'setpoint_timer') and self.setpoint_timer:
-            self.setpoint_timer.cancel()
-        if hasattr(self, 'mission_logic_timer') and self.mission_logic_timer:
-            self.mission_logic_timer.cancel()
+        # Add rosbag stop call here later
+        if hasattr(self, 'setpoint_timer') and self.setpoint_timer: self.setpoint_timer.cancel()
+        if hasattr(self, 'mission_logic_timer') and self.mission_logic_timer: self.mission_logic_timer.cancel()
         super().destroy_node()
 
 
-# --- main function (Unchanged) ---
+# --- main function ---
 def main(args=None):
     rclpy.init(args=args)
     node = None
     try:
+        # Import StateManager here to ensure it uses the code from the install space if running installed
+        from basic_offboard.state_manager import DroneState, StateManager # Use package name
+
         node = MissionControllerNode()
         executor = MultiThreadedExecutor()
         executor.add_node(node)
         try:
             executor.spin()
         finally:
+            # Graceful shutdown
             executor.shutdown()
-            # Ensure node is destroyed if it exists and rclpy is still ok
-            if node and rclpy.ok():
-                 node.destroy_node()
+            if node and rclpy.ok(): node.destroy_node()
     except KeyboardInterrupt:
         print("Ctrl+C detected, shutting down...")
-    # Optional: Catch broader exceptions during spin
-    # except Exception as e:
-    #      if node: node.get_logger().fatal(f"Unhandled exception during spin: {e}\n{traceback.format_exc()}")
+    except Exception as e:
+         # Log any other exceptions during init or spin
+         logger = rclpy.logging.get_logger("mission_controller_main")
+         logger.fatal(f"Unhandled exception: {e}\n{traceback.format_exc()}")
     finally:
-        # Ensure rclpy shutdown happens even if node destruction failed
+        # Ensure ROS cleanup
         if rclpy.ok():
             rclpy.shutdown()
 
