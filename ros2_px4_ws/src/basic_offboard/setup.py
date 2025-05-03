@@ -18,16 +18,11 @@ setup(
     description='Minimal offboard setpoint publisher example', # Change this
     license='Apache License 2.0', # Or your preferred license
     tests_require=['pytest'],
-    # entry_points={
-    #     'console_scripts': [
-    #         # Format: 'executable_name = package_name.module_name:main_function'
-    #         'setpoint_publisher = basic_offboard.setpoint_publisher_node:main',
-    #     ],
-    # },
-    # In setup.py
     entry_points={
         'console_scripts': [
+            # Format: 'executable_name = package_name.module_name:main_function'
+            # 'minimal_setpoint_publisher = basic_offboard.setpoint_publisher_node:main',
             'mission_controller = basic_offboard.mission_controller_node:main',
         ],
-    },
+    }
 )
