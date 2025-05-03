@@ -100,7 +100,7 @@ if __name__ == "__main__":
         "sleep 20; echo '>>> Launching QGroundControl...'; cd ~/mlac/px4_src && ./QGroundControl.AppImage; exec bash",
 
         # Pane 3: Run ROS 2 package (with delay)
-        "sleep 25; echo '>>> Running ROS 2 setpoint_publisher...'; cd ~/mlac/ros2_ws && source install/setup.bash && ros2 run basic_offboard mission_controller; exec bash",
+        "sleep 25; echo '>>> Running ROS 2 setpoint_publisher...'; cd ~/mlac/ros2_px4_ws && source install/setup.bash && ros2 run basic_offboard mission_controller; exec bash",
 
         # Pane 4: Check vehicle state (with delay)
         "sleep 30; echo '>>> Checking vehicle state...'; ros2 topic echo /mavros/local_position/pose"
