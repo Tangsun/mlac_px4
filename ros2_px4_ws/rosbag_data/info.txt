@@ -1,0 +1,18 @@
+[2025-05-17 15:06:27] Mission: "attitude_replay_setpoint" | Input Bag (Replayed): rosbag_data/rosbag_20250517_143030 | Output Bag (Recorded): replay_rosbag_20250517_150627
+[2025-05-17 15:11:04] Mission: "Recording_state_attitdue_pose_command_from_trajectory_tracking" | Bag Directory: rosbag_20250517_151104
+[2025-05-17 15:15:31] Mission: "attitude_replay_trajectory" | Input Bag (Replayed): rosbag_data/rosbag_20250517_151104 | Output Bag (Recorded): replay_rosbag_20250517_151531
+[2025-05-17 15:17:11] Mission: "Recording_state_attitdue_pose_command_from_trajectory_tracking_second_time" | Bag Directory: rosbag_20250517_151711
+[2025-05-17 15:19:09] Mission: "attitude_replay_trajectory_correction" | Input Bag (Replayed): rosbag_data/rosbag_20250517_151711 | Output Bag (Recorded): replay_rosbag_20250517_151909
+[2025-05-17 16:07:17] Mission: "replay_setpoint_attitude_10hz" | Input Bag (Replayed): rosbag_data/rosbag_20250517_143030 | Output Bag (Recorded): replay_rosbag_20250517_160717
+[2025-05-17 16:09:59] Mission: "replay_setpoint_attitude_10hz" | Input Bag (Replayed): rosbag_data/rosbag_20250517_143030 | Output Bag (Recorded): replay_rosbag_20250517_160959
+[2025-05-17 16:11:09] Mission: "replay_setpoint_attitude_10hz" | Input Bag (Replayed): rosbag_data/rosbag_20250517_143030 | Output Bag (Recorded): replay_rosbag_20250517_161109
+[2025-05-17 16:12:16] Mission: "replay_setpoint_attitude_10hz" | Input Bag (Replayed): rosbag_data/rosbag_20250517_143030 | Output Bag (Recorded): replay_rosbag_20250517_161216
+[2025-05-17 16:13:25] Mission: "replay_traj_attitude_10hz" | Input Bag (Replayed): rosbag_data/rosbag_20250517_151711 | Output Bag (Recorded): replay_rosbag_20250517_161325
+[2025-05-17 16:17:47] Mission: "replay_setpoint_attitude_10hz" | Input Bag (Replayed): rosbag_data/rosbag_20250517_143030 | Output Bag (Recorded): replay_rosbag_20250517_161747
+[2025-05-17 16:31:13] Mission: "replay_setpoint_attitude_10hz_nobodyrates" | Input Bag (Replayed): rosbag_data/rosbag_20250517_143030 | Output Bag (Recorded): replay_rosbag_20250517_163113
+[2025-05-17 16:32:59] Mission: "replay_setpoint_attitude_10hz_nobodyrates" | Input Bag (Replayed): rosbag_data/rosbag_20250517_151711 | Output Bag (Recorded): replay_rosbag_20250517_163259
+[2025-05-17 16:58:57] Mission: "test_50hz_publishing_rate_setpoint" | Bag Directory: rosbag_20250517_165857
+[2025-05-17 17:03:28] Mission: "replay_50hz_setpoint_attitude" | Input Bag (Replayed): rosbag_data/rosbag_20250517_165857 | Output Bag (Recorded): replay_rosbag_20250517_170328
+[2025-05-17 17:13:05] Mission: "test_50hz_publishing_rate_traj_circle" | Bag Directory: rosbag_20250517_171305
+[2025-05-17 17:15:31] Mission: "replay_50hz_traj_attitude" | Input Bag (Replayed): rosbag_data/rosbag_20250517_171305 | Output Bag (Recorded): replay_rosbag_20250517_171531
+[2025-05-17 17:17:25] Mission: "replay_50hz_traj_attitude" | Input Bag (Replayed): rosbag_data/rosbag_20250517_171305 | Output Bag (Recorded): replay_rosbag_20250517_171725

@@ -21,8 +21,10 @@ setup(
     entry_points={
         'console_scripts': [
             # Format: 'executable_name = package_name.module_name:main_function'
-            # 'minimal_setpoint_publisher = basic_offboard.setpoint_publisher_node:main',
+            'setpoint_publisher = basic_offboard.setpoint_publisher_node:main',
             'mission_controller = basic_offboard.mission_controller_node:main',
+            'attitude_setpoint = basic_offboard.attitude_publisher_node:main',
+            'attitude_replay = basic_offboard.attitude_replay_node:main',
         ],
     }
 )

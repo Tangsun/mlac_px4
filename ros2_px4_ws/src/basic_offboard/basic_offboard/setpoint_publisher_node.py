@@ -18,7 +18,7 @@ class MinimalSetpointPublisher(Node):
         self.declare_parameter('publish_rate_hz', 20.0)
         self.declare_parameter('target_x', 0.0)
         self.declare_parameter('target_y', 0.0)
-        self.declare_parameter('target_z', 1.0) # Default target: 1m hover above origin
+        self.declare_parameter('target_z', 2.0) # Default target: 1m hover above origin
         self.declare_parameter('coordinate_frame', 'map') # Or 'odom', check your setup
 
         publish_rate = self.get_parameter('publish_rate_hz').value
