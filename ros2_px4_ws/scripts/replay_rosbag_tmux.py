@@ -159,7 +159,7 @@ if __name__ == "__main__":
         f"-p bag_file_path:='{input_bag_to_replay}' "
         f"-p recorded_topic_name:='/mavros/setpoint_raw/target_attitude' " # Or whatever topic is in your input bag
         f"-p publish_topic_name:='/mavros/setpoint_raw/attitude' "
-        f"-p replay_rate_hz:=50.0; exec bash",
+        f"-p replay_rate_hz:=100.0; exec bash",
 
         # Pane 3: Record a NEW ROS bag (the OUTPUT bag)
         # This records the result of the replay, including the commands sent by attitude_replay_node

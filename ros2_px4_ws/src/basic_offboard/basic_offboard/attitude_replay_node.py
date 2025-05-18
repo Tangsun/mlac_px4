@@ -40,7 +40,7 @@ class AttitudeReplayNode(Node):
         )
         self.declare_parameter(
             'replay_rate_hz', 
-            50.0, # Defaulting to 10Hz as per previous findings
+            100.0, # Defaulting to 10Hz as per previous findings
             ParameterDescriptor(description='Rate at which to publish messages from the bag.')
         )
         self.declare_parameter(
@@ -166,20 +166,21 @@ class AttitudeReplayNode(Node):
             # msg_to_publish = deepcopy(self.messages_to_replay[self.current_message_index])
             msg_to_publish = self.messages_to_replay[self.current_message_index]
             
-            # *** KEY MODIFICATION: Set type_mask to ignore body rates ***
-            # This tells PX4 to only use orientation (quaternion) and thrust.
-            # PX4 will then determine the necessary body rates itself.
-            msg_to_publish.type_mask = (
-                AttitudeTarget.IGNORE_ROLL_RATE |
-                AttitudeTarget.IGNORE_PITCH_RATE |
-                AttitudeTarget.IGNORE_YAW_RATE
-            ) # This evaluates to 1 | 2 | 4 = 7
+            # # *** KEY MODIFICATION: Set type_mask to ignore body rates ***
+            # # This tells PX4 to only use orientation (quaternion) and thrust.
+            # # PX4 will then determine the necessary body rates itself.
+            # msg_to_publish.type_mask = (
+            #     AttitudeTarget.IGNORE_ROLL_RATE |
+            #     AttitudeTarget.IGNORE_PITCH_RATE |
+            #     AttitudeTarget.IGNORE_YAW_RATE
+            # ) # This evaluates to 1 | 2 | 4 = 7
 
-            # Optionally, zero out the body rates in the message for clarity,
-            # though PX4 should ignore them based on the type_mask.
-            msg_to_publish.body_rate.x = 0.0
-            msg_to_publish.body_rate.y = 0.0
-            msg_to_publish.body_rate.z = 0.0
+            # # Optionally, zero out the body rates in the message for clarity,
+            # # though PX4 should ignore them based on the type_mask.
+            # msg_to_publish.body_rate.x = 0.0
+            # msg_to_publish.body_rate.y = 0.0
+            # msg_to_publish.body_rate.z = 0.0
+            msg_to_publish.type_mask = 0
             
             # Update the header timestamp to current time for MAVROS
             msg_to_publish.header.stamp = self.get_clock().now().to_msg()

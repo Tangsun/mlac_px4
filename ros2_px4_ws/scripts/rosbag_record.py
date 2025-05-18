@@ -106,10 +106,10 @@ if __name__ == "__main__":
         "sleep 22; " # Wait for MAVROS to be fully up (MAVROS starts at sleep 15)
         "echo '>>> Setting MAVLink stream rates...'; "
         "source /opt/ros/humble/setup.bash && " # Source ROS if not already in pane's environment
-        "echo 'Setting ATTITUDE_TARGET (ID 83) to 50Hz...' && "
-        "ros2 service call /mavros/set_message_interval mavros_msgs/srv/MessageInterval '{message_id: 83, message_rate: 50.0}' && "
-        "sleep 1 && echo 'Setting LOCAL_POSITION_NED (ID 32) to 50Hz...' && "
-        "ros2 service call /mavros/set_message_interval mavros_msgs/srv/MessageInterval '{message_id: 32, message_rate: 50.0}'; " # Removed HIGHRES_IMU call
+        "echo 'Setting ATTITUDE_TARGET (ID 83) to 100Hz...' && "
+        "ros2 service call /mavros/set_message_interval mavros_msgs/srv/MessageInterval '{message_id: 83, message_rate: 100.0}' && "
+        "sleep 1 && echo 'Setting LOCAL_POSITION_NED (ID 32) to 100Hz...' && "
+        "ros2 service call /mavros/set_message_interval mavros_msgs/srv/MessageInterval '{message_id: 32, message_rate: 100.0}'; " # Removed HIGHRES_IMU call
         "echo 'Finished setting stream rates.'; exec bash" # Keep pane open
     )
 

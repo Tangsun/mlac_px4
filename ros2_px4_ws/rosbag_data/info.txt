@@ -16,3 +16,10 @@
 [2025-05-17 17:13:05] Mission: "test_50hz_publishing_rate_traj_circle" | Bag Directory: rosbag_20250517_171305
 [2025-05-17 17:15:31] Mission: "replay_50hz_traj_attitude" | Input Bag (Replayed): rosbag_data/rosbag_20250517_171305 | Output Bag (Recorded): replay_rosbag_20250517_171531
 [2025-05-17 17:17:25] Mission: "replay_50hz_traj_attitude" | Input Bag (Replayed): rosbag_data/rosbag_20250517_171305 | Output Bag (Recorded): replay_rosbag_20250517_171725
+[2025-05-18 12:55:54] Mission: "traj_tracking_200hz_attitude" | Bag Directory: rosbag_20250518_125554
+[2025-05-18 12:57:32] Mission: "traj_tracking_200hz_attitude" | Bag Directory: rosbag_20250518_125732
+[2025-05-18 13:02:16] Mission: "replay_attitude_traj_200hz" | Input Bag (Replayed): rosbag_data/rosbag_20250518_125732 | Output Bag (Recorded): replay_rosbag_20250518_130216
+[2025-05-18 13:03:25] Mission: "replay_attitude_traj_200hz" | Input Bag (Replayed): rosbag_data/rosbag_20250518_125732 | Output Bag (Recorded): replay_rosbag_20250518_130325
+[2025-05-18 13:07:59] Mission: "traj_tracking_100hz_attitude" | Bag Directory: rosbag_20250518_130759
+[2025-05-18 13:10:34] Mission: "replay_attitude_traj_100hz" | Input Bag (Replayed): rosbag_data/rosbag_20250518_130759 | Output Bag (Recorded): replay_rosbag_20250518_131034
+[2025-05-18 13:16:54] Mission: "replay_attitude_traj_100hz_bodyrates_nonzero" | Input Bag (Replayed): rosbag_data/rosbag_20250518_130759 | Output Bag (Recorded): replay_rosbag_20250518_131654
