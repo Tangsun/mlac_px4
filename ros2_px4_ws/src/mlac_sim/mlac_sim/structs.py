@@ -3,7 +3,7 @@ import numpy as np
 
 class AttCmdClass:
     def __init__(self):
-        self.q = np.array([1.0, 0.0, 0.0, 0.0]) # w, x, y, z # Ensure float for consistency
+        self.q = np.array([1.0, 0.0, 0.0, 0.0]) # w, x, y, z
         self.w = np.zeros(3)
         self.F_W = np.zeros(3)
 
@@ -18,7 +18,7 @@ class ParametersClass:
 
 class StateClass:
     def __init__(self):
-        self.t = -1.0 # Ensure float
+        self.t = -1.0
         self.p = np.zeros(3)
         self.v = np.zeros(3)
         self.q = np.array([1.0, 0.0, 0.0, 0.0]) # w, x, y, z
@@ -33,13 +33,13 @@ class GoalClass:
     def __init__(self):
         self.mode_xy = self.Mode.POS_CTRL
         self.mode_z = self.Mode.POS_CTRL
-        self.t = -1.0 # Ensure float
+        self.t = -1.0
         self.p = np.zeros(3)
         self.v = np.zeros(3)
-        self.a = np.zeros(3)
-        self.j = np.zeros(3)
-        self.psi = 0.0 # Ensure float
-        self.dpsi = 0.0 # Ensure float
+        self.a = np.zeros(3) # Default to zero if not specified by trajectory
+        self.j = None        # Jerk: None if not specified by trajectory
+        self.psi = 0.0
+        self.dpsi = None     # Yaw rate: None if not specified by trajectory
 
 class ControlLogClass:
     def __init__(self):
@@ -52,28 +52,25 @@ class ControlLogClass:
         self.v_err = np.zeros(3)
         self.a_ff = np.zeros(3)
         self.a_fb = np.zeros(3)
-        self.j_ff = np.zeros(3) # Feedforward jerk from goal
-        self.j_fb = np.zeros(3) # Feedback jerk computed
-        self.q = np.array([1.0, 0.0, 0.0, 0.0]) # w, x, y, z
-        self.q_ref = np.array([1.0, 0.0, 0.0, 0.0]) # w, x, y, z
+        self.j_ff = np.zeros(3) 
+        self.j_fb = np.zeros(3) 
+        self.q = np.array([1.0, 0.0, 0.0, 0.0]) 
+        self.q_ref = np.array([1.0, 0.0, 0.0, 0.0]) 
         self.w = np.zeros(3)
         self.w_ref = np.zeros(3)
-        self.F_W = np.zeros(3)  # total desired force [N], expr in world frame
-        self.mode_xy = GoalClass.Mode.POS_CTRL # Log the mode used
-        self.mode_z = GoalClass.Mode.POS_CTRL  # Log the mode used
+        self.F_W = np.zeros(3)
+        self.mode_xy = GoalClass.Mode.POS_CTRL 
+        self.mode_z = GoalClass.Mode.POS_CTRL  
 
-        # Added for logging reference yaw and yaw rate from GoalClass
         self.psi_ref = 0.0
         self.dpsi_ref = 0.0
 
-        # COML specific logging (can remain for PID, will just be zero)
         self.P_norm = 0.0
         self.A_norm = 0.0
         self.y_norm = 0.0
         self.f_hat = np.zeros(3)
 
-
-class ModeClass(Enum): # This seems related to a higher-level state machine, not directly used by OuterLoop
+class ModeClass(Enum): 
     Preflight = 0
     SpinningUp = 1
     Flying = 2

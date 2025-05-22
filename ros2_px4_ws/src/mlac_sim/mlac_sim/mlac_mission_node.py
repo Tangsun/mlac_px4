@@ -25,7 +25,7 @@ class MlacMissionNode(Node):
     def __init__(self):
         super().__init__('mlac_mission_node')
 
-        # Parameter Declarations (as before)
+        # Parameter Declarations
         self.declare_parameter(
             'controller_type', 'pid',
             ParameterDescriptor(description="Controller type: 'pid', 'coml', or 'coml_debug'")
@@ -35,11 +35,12 @@ class MlacMissionNode(Node):
             ParameterDescriptor(description="Rate of the main control loop")
         )
         self.declare_parameter(
-            'trajectory_file_name', 'takeoff_hover_land_8col_50hz.npy',
+            # 'trajectory_file_name', 'takeoff_hover_land_8col_50hz.npy',
+            'trajectory_file_name', 'circle_trajectory_8col_50hz.npy',
             ParameterDescriptor(description="Name of the .npy trajectory file in 'mlac_sim/traj_data/' folder")
         )
         self.declare_parameter(
-            'vehicle_mass', 1.3,
+            'vehicle_mass', 2.0,
             ParameterDescriptor(description="Vehicle mass (kg)")
         )
         self.declare_parameter(
@@ -67,7 +68,7 @@ class MlacMissionNode(Node):
             ParameterDescriptor(description="Max thrust capability of the vehicle in Newtons (e.g., mass * g * 2.0)")
         )
 
-        # Get Parameters (as before)
+        # Get Parameters
         self.controller_type = self.get_parameter('controller_type').get_parameter_value().string_value
         self.trajectory_file_name = self.get_parameter('trajectory_file_name').get_parameter_value().string_value
         self.max_thrust_N = self.get_parameter('max_thrust_N').get_parameter_value().double_value
@@ -90,28 +91,28 @@ class MlacMissionNode(Node):
 
         # Node State Variables
         self.current_vehicle_state_py = StateClass()
-        self.current_goal_py = GoalClass() # This will be updated by the control loop
+        self.current_goal_py = GoalClass()
         self.is_vehicle_state_received = False
-        self.is_controller_active = False # True if a mission command (HOLD/START_TRAJ) is active
+        self.is_controller_active = False 
         self.is_trajectory_loaded = False
-        self.trajectory_execution_active = False # True if START_TRAJECTORY is active
+        self.trajectory_execution_active = False 
         self.trajectory_start_time_ros: Time | None = None
         self.loaded_trajectory_data = None
         
-        self.was_in_offboard_mode = False # Flag to track if we were in OFFBOARD
-        self.was_armed = False # Flag to track if we were armed
+        self.was_in_offboard_mode = False 
+        self.was_armed = False 
 
         self._load_trajectory()
 
         self.outer_loop_ctrl = OuterLoop(
             params=self.controller_params,
-            state0=self.current_vehicle_state_py, # Initial state (will be updated)
-            goal0=self._get_hold_position_goal(),   # Initial goal (hold current, though state isn't known yet)
+            state0=self.current_vehicle_state_py, 
+            goal0=self._get_hold_position_goal(),   
             controller=self.controller_type,
             package_name='mlac_sim'
         )
 
-        # QoS Profiles and Subscribers/Publishers (as before)
+        # QoS Profiles and Subscribers/Publishers
         qos_sensor_data = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, durability=DurabilityPolicy.VOLATILE, history=HistoryPolicy.KEEP_LAST, depth=1)
         qos_reliable_volatile = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.VOLATILE, history=HistoryPolicy.KEEP_LAST, depth=10)
         qos_reliable_transientlocal = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL, history=HistoryPolicy.KEEP_LAST, depth=1)
@@ -129,7 +130,6 @@ class MlacMissionNode(Node):
         self.get_logger().info(f"MLAC Mission Node ({self.controller_type}) initialized. Trajectory loaded: {self.is_trajectory_loaded}")
 
     def _load_trajectory(self):
-        # (Same as before)
         try:
             package_share_path = get_package_share_directory('mlac_sim')
             traj_path = os.path.join(package_share_path, 'traj_data', self.trajectory_file_name)
@@ -160,31 +160,27 @@ class MlacMissionNode(Node):
         deactivate_controller_due_to_state_change = False
         deactivation_reason = ""
 
-        if self.is_controller_active: # Only consider deactivating if a mission command was active
-            if self.was_armed and not msg.armed: # It was armed, but now it's disarmed
+        if self.is_controller_active: 
+            if self.was_armed and not msg.armed: 
                 deactivate_controller_due_to_state_change = True
                 deactivation_reason = "MAVROS Disarmed while controller was active"
-            elif self.was_in_offboard_mode and msg.mode != "OFFBOARD": # It was in OFFBOARD, but now it's not
+            elif self.was_in_offboard_mode and msg.mode != "OFFBOARD": 
                 deactivate_controller_due_to_state_change = True
                 deactivation_reason = f"MAVROS Exited OFFBOARD mode to '{msg.mode}' while controller was active"
         
         if deactivate_controller_due_to_state_change:
             self.get_logger().warn(f"{deactivation_reason}. Deactivating user-commanded control.")
-            self.is_controller_active = False         # Stop following specific mission commands
-            self.trajectory_execution_active = False  # Stop trajectory following
-            # The control_loop will now default to holding current position if vehicle state is available
-            
+            self.is_controller_active = False         
+            self.trajectory_execution_active = False  
             status_msg = BoolMsg()
-            status_msg.data = True # Trajectory (if any) is considered stopped/complete
+            status_msg.data = True 
             self.trajectory_status_pub.publish(status_msg)
 
-        # Update "was" states for the next callback iteration
         self.was_armed = msg.armed
         self.was_in_offboard_mode = (msg.mode == "OFFBOARD")
 
 
     def vehicle_pose_callback(self, msg: PoseStamped):
-        # (Same as before, with debug log)
         self.current_vehicle_state_py.t = msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9
         self.current_vehicle_state_py.p = np.array([msg.pose.position.x, msg.pose.position.y, msg.pose.position.z])
         self.current_vehicle_state_py.q = np.array([msg.pose.orientation.w, msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z])
@@ -194,7 +190,6 @@ class MlacMissionNode(Node):
 
 
     def vehicle_velocity_callback(self, msg: TwistStamped):
-        # (Same as before)
         if not self.is_vehicle_state_received:
             return
         R_body_to_world = quaternion_to_rotation_matrix(self.current_vehicle_state_py.q).T
@@ -202,7 +197,6 @@ class MlacMissionNode(Node):
         self.current_vehicle_state_py.w = np.array([msg.twist.angular.x, msg.twist.angular.y, msg.twist.angular.z])
 
     def mission_command_callback(self, msg: StringMsg):
-        # (Same as before, with debug logs)
         command = msg.data.upper()
         self.get_logger().info(f"Received mission command: '{command}'")
         status_msg = BoolMsg()
@@ -230,7 +224,7 @@ class MlacMissionNode(Node):
             self.trajectory_execution_active = False 
             self.get_logger().info("Controller activated by mission command. Holding current position.")
         elif command == "STOP_CONTROLLER":
-            self.is_controller_active = False # This will make control_loop default to holding current pos
+            self.is_controller_active = False 
             self.get_logger().info("DEBUG: STOP_CONTROLLER: is_controller_active=False. Node will stream current pose if state available.")
             if self.trajectory_execution_active:
                 status_msg.data = True
@@ -241,35 +235,44 @@ class MlacMissionNode(Node):
             self.get_logger().warn(f"Unknown mission command: '{command}'")
 
     def _get_trajectory_goal_at_time(self, target_time_in_trajectory_timeline: float) -> GoalClass | None:
-        # (Same as before)
         if not self.is_trajectory_loaded or self.loaded_trajectory_data is None:
             self.get_logger().warn("_get_trajectory_goal_at_time called but no trajectory loaded.", throttle_duration_sec=5.0)
             return None
         traj_data = self.loaded_trajectory_data
         traj_file_times = traj_data[:, 0]
         clipped_target_time = np.clip(target_time_in_trajectory_timeline, traj_file_times[0], traj_file_times[-1])
-        goal = GoalClass()
+
+        goal = GoalClass() # Initializes j and dpsi to None
         goal.t = self.get_clock().now().nanoseconds / 1e9
         goal.p = np.array([np.interp(clipped_target_time, traj_file_times, traj_data[:, i]) for i in range(1, 4)])
         goal.v = np.array([np.interp(clipped_target_time, traj_file_times, traj_data[:, i]) for i in range(4, 7)])
         goal.psi = float(np.interp(clipped_target_time, traj_file_times, traj_data[:, 7]))
+
         num_cols = traj_data.shape[1]
-        goal.a = np.array([np.interp(clipped_target_time, traj_file_times, traj_data[:, i]) for i in range(8, 11)]) if num_cols >= 11 else np.zeros(3)
-        goal.j = np.array([np.interp(clipped_target_time, traj_file_times, traj_data[:, i]) for i in range(11, 14)]) if num_cols >= 14 else np.zeros(3)
-        goal.dpsi = float(np.interp(clipped_target_time, traj_file_times, traj_data[:, 14])) if num_cols >= 15 else 0.0
+        # Default for goal.a is already np.zeros(3) from GoalClass init, only override if present
+        if num_cols >= 11: # Ax,Ay,Az from cols 8,9,10
+            goal.a = np.array([np.interp(clipped_target_time, traj_file_times, traj_data[:, i]) for i in range(8, 11)])
+        
+        if num_cols >= 14: # Jx,Jy,Jz from cols 11,12,13
+            goal.j = np.array([np.interp(clipped_target_time, traj_file_times, traj_data[:, i]) for i in range(11, 14)])
+        # else: goal.j remains None
+
+        if num_cols >= 15: # dPsi from col 14
+            goal.dpsi = float(np.interp(clipped_target_time, traj_file_times, traj_data[:, 14]))
+        # else: goal.dpsi remains None
+        
         goal.mode_xy = GoalClass.Mode.POS_CTRL
         goal.mode_z = GoalClass.Mode.POS_CTRL
         return goal
 
     def _get_hold_position_goal(self) -> GoalClass:
-        # (Same as before, with debug log)
         goal = GoalClass()
         if self.is_vehicle_state_received:
             goal.p = np.copy(self.current_vehicle_state_py.p)
             rpy_vector3 = get_rpy(self.current_vehicle_state_py.q)
             goal.psi = rpy_vector3.z
         else:
-            goal.p = np.zeros(3) # Should ideally not happen if control_loop calls this
+            goal.p = np.zeros(3) 
             goal.psi = 0.0
             self.get_logger().warn("DEBUG: Hold Goal created with zeros (no vehicle state yet when _get_hold_position_goal was called).")
         goal.v = np.zeros(3)
@@ -284,29 +287,27 @@ class MlacMissionNode(Node):
     def control_loop_callback(self):
         current_ros_time = self.get_clock().now()
         
-        self.get_logger().debug(
-            f"Control Loop Tick: ActiveCmd={self.is_controller_active}, " # Renamed for clarity
-            f"StateRx={self.is_vehicle_state_received}, "
-            f"TrajExec={self.trajectory_execution_active}",
-            throttle_duration_sec=1.0 
-        )
+        # self.get_logger().debug( # Keeping one top-level debug for loop entry
+        #     f"Control Loop Tick: ActiveCmd={self.is_controller_active}, "
+        #     f"StateRx={self.is_vehicle_state_received}, "
+        #     f"TrajExec={self.trajectory_execution_active}",
+        #     throttle_duration_sec=1.0 
+        # )
 
         if not self.is_vehicle_state_received:
             self.get_logger().debug(
                 f"Control Loop: Returning early. No vehicle state received yet.",
                 throttle_duration_sec=2.0
             )
-            return # Cannot do anything without vehicle state
+            return 
 
         # --- Goal Determination ---
-        # If a mission command is active (HOLD or START_TRAJECTORY)
-        if self.is_controller_active:
+        if self.is_controller_active: # A mission command (HOLD or START_TRAJ) is active
             if self.trajectory_execution_active:
-                # Trajectory following logic (same as before)
                 if not self.is_trajectory_loaded or self.trajectory_start_time_ros is None or self.loaded_trajectory_data is None:
                     self.get_logger().warn("Trajectory execution active but no trajectory/start time. Switching to HOLD_POSITION commanded by mission.", throttle_duration_sec=2.0)
-                    self.current_goal_py = self._get_hold_position_goal() # Hold current based on received state
-                    self.trajectory_execution_active = False # Revert to hold, but controller is still "active" by command
+                    self.current_goal_py = self._get_hold_position_goal() 
+                    self.trajectory_execution_active = False 
                     status_msg = BoolMsg(); status_msg.data = True
                     self.trajectory_status_pub.publish(status_msg)
                 else:
@@ -326,7 +327,6 @@ class MlacMissionNode(Node):
                         if self.trajectory_execution_active:
                              self.get_logger().info(f"Trajectory time ended. Holding last trajectory point (commanded by mission).")
                              self.trajectory_execution_active = False 
-                             # self.is_controller_active remains true, so it will hold the last point
                              status_msg = BoolMsg(); status_msg.data = True 
                              self.trajectory_status_pub.publish(status_msg)
             else: # self.is_controller_active is True, but not trajectory_execution_active -> HOLD_POSITION command
@@ -359,33 +359,58 @@ class MlacMissionNode(Node):
         thrust_force_along_desired_z = np.dot(att_cmd_py.F_W, desired_body_z_axis_in_world)
         normalized_thrust = np.clip(thrust_force_along_desired_z / self.max_thrust_N, 0.0, 1.0)
         att_msg.thrust = float(normalized_thrust)
-        att_msg.type_mask = 0 
+        # att_msg.type_mask = 0 # Use orientation, body rates, and thrust
+        # att_msg type mask should ignore all body rate commands
+        att_msg.type_mask = (
+            AttitudeTarget.IGNORE_ROLL_RATE |
+            AttitudeTarget.IGNORE_PITCH_RATE |
+            AttitudeTarget.IGNORE_YAW_RATE
+        )
+
+        # --- ADDED LOGGING FOR ATTITUDE COMMAND ---
+        self.get_logger().info(
+            f"Publishing AttitudeTarget: Q(w,x,y,z)=({att_msg.orientation.w:.2f}, {att_msg.orientation.x:.2f}, {att_msg.orientation.y:.2f}, {att_msg.orientation.z:.2f}), "
+            f"Rates(x,y,z)=({att_msg.body_rate.x:.2f}, {att_msg.body_rate.y:.2f}, {att_msg.body_rate.z:.2f}), "
+            f"Type mask={att_msg.type_mask}, "
+            f"Thrust={att_msg.thrust:.2f}",
+            throttle_duration_sec=0.5 # Log at most twice per second
+        )
+        # --- END ADDED LOGGING ---
 
         self.attitude_setpoint_pub.publish(att_msg)
-        self.get_logger().debug("Control Loop: AttitudeTarget published.", throttle_duration_sec=1.0)
+        # self.get_logger().debug("Control Loop: AttitudeTarget published (old log).", throttle_duration_sec=1.0) # Can remove this if new log is good
 
-        # Logging (as before)
+        # Logging ControllerLog
         log_data_py = self.outer_loop_ctrl.get_log()
         log_data_py.p_ref = np.copy(self.current_goal_py.p)
         log_data_py.v_ref = np.copy(self.current_goal_py.v)
-        log_data_py.a_ff = np.copy(self.current_goal_py.a)
-        log_data_py.j_ff = np.copy(self.current_goal_py.j)
+        log_data_py.a_ff = np.copy(self.current_goal_py.a) 
+        
+        # --- MODIFIED LOGGING FOR j_ff ---
+        # current_goal_j = self.current_goal_py.j
+        # if current_goal_j is None:
+        #     log_data_py.j_ff = np.zeros(3) # Default to zeros if None
+        #     self.get_logger().debug(f"DEBUG: control_loop_callback: self.current_goal_py.j is None, setting log_data_py.j_ff to zeros.")
+        # else:
+        #     log_data_py.j_ff = np.copy(current_goal_j)
+        #     self.get_logger().debug(f"DEBUG: control_loop_callback: self.current_goal_py.j is {current_goal_j}, copied to log_data_py.j_ff.")
+
         if hasattr(log_data_py, 'psi_ref'):
             log_data_py.psi_ref = self.current_goal_py.psi
         if hasattr(log_data_py, 'dpsi_ref'):
-            log_data_py.dpsi_ref = self.current_goal_py.dpsi
+            current_goal_dpsi = self.current_goal_py.dpsi
+            log_data_py.dpsi_ref = current_goal_dpsi if current_goal_dpsi is not None else 0.0
+        
         log_msg = controllog_class_to_ros_msg(log_data_py, current_ros_time.to_msg())
         self.controller_log_pub.publish(log_msg)
 
     def destroy_node(self):
-        # (Same as before)
         self.get_logger().info("Shutting down MLAC Mission Node.")
         if self.control_timer:
             self.control_timer.cancel()
         super().destroy_node()
 
 def main(args=None):
-    # (Same as before)
     rclpy.init(args=args)
     node = None
     try:
