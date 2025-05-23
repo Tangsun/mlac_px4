@@ -26,26 +26,26 @@ class OdomRepublisher(Node):
         # Create subscription for mocap or lidar odometry 
         if self.odom_type == "mocap":
             self.pose_sub_topic_name = self.declare_parameter(
-                "~pose_sub_topic_name", namespace + "/world"
+                "~pose_sub_topic_name", "/BD01/world"
             ).value 
             self.twist_sub_topic_name = self.declare_parameter(
-                "~twist_sub_topic_name", namespace + "/mocap/twist"
+                "~twist_sub_topic_name", "/BD01/mocap/twist"
             ).value 
             self._mocap_pose_sub = self.create_subscription(PoseStamped, self.pose_sub_topic_name, self._mocap_pose_cb, 10)
             self._mocap_twist_sub = self.create_subscription(TwistStamped, self.twist_sub_topic_name, self._mocap_twist_cb, 10)
         elif self.odom_type == "livox": 
             self.odom_sub_topic_name = self.declare_parameter(
-                "~odom_sub_topic_name", namespace + "/dlio/odom_node/odom"
+                "~odom_sub_topic_name", "/dlio/odom_node/odom"
             ).value 
             self._odom_sub = self.create_subscription(Odometry, self.odom_sub_topic_name, self._livox_odom_cb, 10)
 
         # Create pose and twist publishers 
         self.pose_pub_topic_name = self.declare_parameter(
-            "~pose_pub_topic_name",  namespace + "/mavros/vision_pose/pose_cov"
+            "~pose_pub_topic_name",  "/mavros/vision_pose/pose_cov"
         ).value
 
         self.twist_pub_topic_name = self.declare_parameter(
-            "~twist_pub_topic_name", namespace + "/mavros/vision_speed/speed_twist_cov"
+            "~twist_pub_topic_name", "/mavros/vision_speed/speed_twist_cov"
         ).value 
 
         self._last_pose_msg = None

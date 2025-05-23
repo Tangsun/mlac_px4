@@ -32,6 +32,7 @@ setup(
     entry_points={
         'console_scripts': [
             'mlac_mission_node = mlac_sim.mlac_mission_node:main',
+            'repub_odom_node = mlac_sim.repub_odom:main',
         ],
     },
 )
