@@ -3,6 +3,9 @@ px4_src/
 Reference/
 References/
 
+# Ignore saved pictures
+*.png
+
 # Ignore virtual environment files
 mlac_env/
 
