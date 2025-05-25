@@ -31,13 +31,15 @@ class MlacMissionNode(Node):
         self.declare_parameter('controller_type', 'pid', ParameterDescriptor(description="Controller type: 'pid', 'coml', or 'coml_debug'"))
         self.declare_parameter('control_loop_rate_hz', 50.0, ParameterDescriptor(description="Rate of the main control loop"))
         self.declare_parameter('trajectory_file_name', 'circle_trajectory_8col_50hz.npy', ParameterDescriptor(description="Name of the .npy trajectory file in 'mlac_sim/traj_data/' folder"))
-        self.declare_parameter('vehicle_mass', 4.562, ParameterDescriptor(description="Vehicle mass (kg)"))
+        # self.declare_parameter('vehicle_mass', 4.562, ParameterDescriptor(description="Vehicle mass (kg)"))
+        self.declare_parameter('vehicle_mass', 2.0, ParameterDescriptor(description="Vehicle mass (kg)"))
         self.declare_parameter('Kp', [7.0, 7.0, 7.0], ParameterDescriptor(description="Proportional gains [Px, Py, Pz]"))
         self.declare_parameter('Ki', [0.5, 0.5, 0.5], ParameterDescriptor(description="Integral gains [Ix, Iy, Iz]"))
         self.declare_parameter('Kd', [4.0, 4.0, 4.0], ParameterDescriptor(description="Derivative gains [Dx, Dy, Dz]"))
         self.declare_parameter('max_pos_err', [0.5, 0.5, 0.5], ParameterDescriptor(description="Max position error for PID saturation [err_x, err_y, err_z]"))
         self.declare_parameter('max_vel_err', [1.0, 1.0, 1.0], ParameterDescriptor(description="Max velocity error for PID saturation [verr_x, verr_y, verr_z]"))
-        self.declare_parameter('max_thrust_N', 2.2*25.0, ParameterDescriptor(description="Max thrust capability (N)"))
+        # self.declare_parameter('max_thrust_N', 2.2*25.0, ParameterDescriptor(description="Max thrust capability (N)"))
+        self.declare_parameter('max_thrust_N', 25.0, ParameterDescriptor(description="Max thrust capability (N)"))
 
         # New Mission Logic Parameters for FSM
         self.declare_parameter('initial_hover_position', [0.0, 0.0, 2.0], ParameterDescriptor(description="Initial hover position [x, y, z] (m)"))

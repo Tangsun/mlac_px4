@@ -1,0 +1,10 @@
+[2025-05-23 12:26:58] Mission: "fly_pid_with_circle_trajectory" | Bag Directory: rosbag_fly_pid_with_circle_trajectory_20250523_122658
+[2025-05-23 12:30:11] Mission: "fly_pid_with_circle_trajectory" | Bag Directory: rosbag_fly_pid_with_circle_trajectory_20250523_123011
+[2025-05-23 12:36:12] Mission: "circle_pid_2.0_tracking" | Bag Directory: rosbag_circle_pid_2.0_tracking_20250523_123612
+[2025-05-23 12:38:16] Mission: "circle_pid_2.0_tracking" | Bag Directory: rosbag_circle_pid_2.0_tracking_20250523_123816
+[2025-05-23 17:05:55] Mission: "test" | Bag Directory: rosbag_test_20250523_170555
+[2025-05-23 17:06:39] Mission: "test" | Bag Directory: rosbag_test_20250523_170639
+[2025-05-23 17:13:38] Mission: "test" | Bag Directory: rosbag_test_20250523_171338
+[2025-05-23 17:20:58] Mission: "test" | Bag Directory: rosbag_test_20250523_172058
+[2025-05-23 17:23:21] Mission: "test" | Bag Directory: rosbag_test_20250523_172321
+[2025-05-23 17:25:20] Mission: "test" | Bag Directory: rosbag_test_20250523_172520
