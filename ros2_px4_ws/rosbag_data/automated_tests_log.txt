@@ -1,0 +1,3 @@
+[2025-05-24 21:18:08] Mission: "nowind_with0_param" | Bag Directory: rosbag_windX0.0_windY0.0_windZ0.0_20250524_211808 | Wind (X,Y,Z): (0.0, 0.0, 0.0) | Trajectory File: setpoint_hold_x1.0_y1.0_z4.0_t20.0s_50hz_8col.npy
+[2025-05-24 21:51:40] Mission: "nowind_with0_param" | Bag Directory: rosbag_windX0.0_windY0.0_windZ0.0_20250524_215140 | Wind (X,Y,Z): (0.0, 0.0, 0.0) | Trajectory File: setpoint_hold_x1.0_y1.0_z4.0_t20.0s_50hz_8col.npy
+[2025-05-24 21:52:37] Mission: "nowind_with0_param" | Bag Directory: rosbag_windX0.0_windY0.0_windZ0.0_20250524_215237 | Wind (X,Y,Z): (0.0, 0.0, 0.0) | Trajectory File: setpoint_hold_x1.0_y1.0_z4.0_t20.0s_50hz_8col.npy
