@@ -103,7 +103,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     mission_desc_from_arg = args.mission_description
 
-    session = "mlac_sim_main" # Changed session name slightly
+    session = "mlac_hardware_main" # Changed session name slightly
     
     ros2_ws_path = os.path.expanduser("~/mlac_px4/ros2_px4_ws")
     px4_src_path = os.path.expanduser("~/mlac_px4/px4_src/PX4-Autopilot")
@@ -123,11 +123,13 @@ if __name__ == "__main__":
 
     log_mission_details(info_log_file_path, mission_desc_from_arg, bag_directory_name)
 
+    trajectory_file_name = "circle_trajectory_8col_50hz.npy"
+
     # --- Define Commands for TMUX Panes ---
 
     # Command for Pane running mlac_mission_node
     mlac_node_command = (
-        f"sleep 20; "
+        f"sleep 10; "
         f"echo '>>> Preparing to run mlac_mission_node...'; "
         f"echo 'Activating virtual environment ({venv_path})...' && "
         f"source {venv_path}/bin/activate && "
@@ -136,13 +138,13 @@ if __name__ == "__main__":
         f"echo 'Exporting PYTHONPATH with venv site-packages...' && "
         f"export PYTHONPATH=\"{venv_path}/lib/python3.10/site-packages${{PYTHONPATH:+:$PYTHONPATH}}\" && "
         f"echo 'Running mlac_mission_node...' && "
-        f"ros2 run mlac_sim mlac_mission_node; " # Add any specific params if needed, e.g., --ros-args -p trajectory_file_name:="your_traj.npy"
+        f"ros2 run mlac_sim mlac_mission_node --ros-args -p trajectory_file_name:='{trajectory_file_name}'; " # Add any specific params if needed, e.g., --ros-args -p trajectory_file_name:="your_traj.npy"
         f"echo 'mlac_mission_node pane exited.'; exec bash"
     )
 
     # Command to set MAVLink stream rates
     set_stream_rates_command = (
-        f"sleep 25; "
+        f"sleep 5; "
         f"echo '>>> Attempting to set MAVLink stream rates...'; "
         f"source {ros2_ws_path}/install/setup.bash && "
         f"echo 'Setting LOCAL_POSITION_NED (ID 32) to 50Hz...' && "
@@ -161,7 +163,7 @@ if __name__ == "__main__":
         f"echo '>>> Sourcing workspace & venv for mission commands...'; "
         f"source {ros2_ws_path}/install/setup.bash && "
         f"source {venv_path}/bin/activate && "
-        f"echo 'Workspace sourced. Ready for mission commands (e.g., ros2 topic pub /mission_control/command ...).'; "
+        f"echo 'Workspace sourced. Ready for mission commands ros2 topic pub --once /mission_control/command std_msgs/msg/String etc.'; "
         f"exec bash"
     )
 
@@ -194,7 +196,7 @@ if __name__ == "__main__":
         rosbag_command,
 
         # Pane 1: Launch MAVROS
-        f"sleep 15; echo '>>> Launching MAVROS...'; source {ros2_ws_path}/install/setup.bash && ros2 launch mavros px4.launch tgt_system:=11; echo 'MAVROS pane exited.'; exec bash",
+        f"sleep 5; echo '>>> Launching MAVROS...'; source {ros2_ws_path}/install/setup.bash && ros2 launch mavros px4.launch tgt_system:=11; echo 'MAVROS pane exited.'; exec bash",
 
         # Pane 2: Run your mlac_mission_node
         mlac_node_command,
@@ -210,7 +212,7 @@ if __name__ == "__main__":
         command_pane_setup,
         
         # Pane 6: Launch QGroundControl
-        f"sleep 35; echo '>>> Launching QGroundControl...'; cd {os.path.dirname(px4_src_path)} && ./QGroundControl.AppImage; echo 'QGC pane exited.'; exec bash", # Assuming QGC is in ~/mlac_px4/
+        # f"sleep 35; echo '>>> Launching QGroundControl...'; cd {os.path.dirname(px4_src_path)} && ./QGroundControl.AppImage; echo 'QGC pane exited.'; exec bash", # Assuming QGC is in ~/mlac_px4/
     ]
 
     # Filter out any None commands if you conditionally add them (not strictly needed here)

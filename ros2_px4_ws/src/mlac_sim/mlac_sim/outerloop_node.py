@@ -284,11 +284,6 @@ class OuterLoop:
         norm_F_W = np.linalg.norm(F_W)
         
         q_ref_calculated = np.array([np.cos(goal.psi / 2.0), 0.0, 0.0, np.sin(goal.psi / 2.0)])
-        norm_default_q_ref = np.linalg.norm(q_ref_calculated)
-        if norm_default_q_ref < 1e-9:
-            q_ref_calculated = np.array([1.0, 0.0, 0.0, 0.0])
-        else:
-            q_ref_calculated = q_ref_calculated / norm_default_q_ref
 
         if norm_F_W >= 1e-6: # Only calculate from F_W if force is significant
             xi = F_W / self.params_.mass
@@ -318,12 +313,6 @@ class OuterLoop:
         # else: q_ref_calculated remains the default level attitude
 
         q_ref_final = q_ref_calculated # It should be normalized by now or is a unit quaternion
-        norm_q_ref_final = np.linalg.norm(q_ref_final)
-        if abs(norm_q_ref_final - 1.0) > 1e-6 : # Re-normalize if not already unit
-            if norm_q_ref_final < 1e-9:
-                q_ref_final = np.array([1.0, 0.0, 0.0, 0.0])
-            else:
-                q_ref_final = q_ref_final / norm_q_ref_final
             
         self.log_.q = state.q
         self.log_.q_ref = q_ref_final

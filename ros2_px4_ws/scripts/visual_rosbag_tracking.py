@@ -27,18 +27,43 @@ def quaternion_to_rotation_matrix(q_np: np.ndarray) -> np.ndarray:
                      [xY+wZ, 1.0-(xX+zZ), yZ-wX],
                      [xZ-wY, yZ+wX, 1.0-(xX+yY)]])
 
+def plot_quaternion_comparison(actual_time_rel, actual_orientations_filt, 
+                               cmd_ref_time_rel, cmd_ref_orientations_filt, bag_file_name):
+    if len(actual_time_rel) == 0 and len(cmd_ref_time_rel) == 0:
+        print("Skipping quaternion plot: no data for either actual or commanded.")
+        return
+
+    fig_quat, axs_quat = plt.subplots(4, 1, figsize=(15, 12), sharex=True)
+    fig_quat.suptitle(f'Quaternion Comparison vs. Time (Execute Phase to Landing)\nBag: {os.path.basename(bag_file_name)}', fontsize=14)
+    
+    q_labels = ['q_w', 'q_x', 'q_y', 'q_z']
+    common_time_label = 'Time since Identified Trajectory Execution Start (s)'
+
+    for i in range(4): # Iterate through w, x, y, z components
+        if len(actual_time_rel) > 0 and actual_orientations_filt.shape[0] == len(actual_time_rel):
+            axs_quat[i].plot(actual_time_rel, actual_orientations_filt[:, i], label=f'Actual {q_labels[i]} (Pose Topic)')
+        if len(cmd_ref_time_rel) > 0 and cmd_ref_orientations_filt.shape[0] == len(cmd_ref_time_rel) and cmd_ref_orientations_filt.shape[1] == 4 : # Check shape
+            axs_quat[i].plot(cmd_ref_time_rel, cmd_ref_orientations_filt[:, i], label=f'Commanded Ref {q_labels[i]} (Log)', linestyle='--')
+        
+        axs_quat[i].set_ylabel(q_labels[i])
+        axs_quat[i].legend()
+        axs_quat[i].grid(True)
+    
+    axs_quat[-1].set_xlabel(common_time_label)
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+
+
 def main(args):
-    # --- 1. Load Reference Trajectory from .npy file (still needed for duration and start point matching) ---
-    if not os.path.exists(args.ref_traj_file):
-        print(f"Error: Ref trajectory file not found: {args.ref_traj_file}"); return
-    ref_traj_npy = np.load(args.ref_traj_file)
-    ref_npy_time = ref_traj_npy[:, 0]
-    ref_npy_px = ref_traj_npy[:, 1]; ref_npy_py = ref_traj_npy[:, 2]; ref_npy_pz = ref_traj_npy[:, 3]
-    # ref_npy_vx = ref_traj_npy[:, 4]; ref_npy_vy = ref_traj_npy[:, 5]; ref_npy_vz = ref_traj_npy[:, 6] # Not plotted but loaded for consistency
-    print(f"Loaded reference trajectory '{os.path.basename(args.ref_traj_file)}' ({ref_traj_npy.shape[0]} pts). Duration: {ref_npy_time[-1] - ref_npy_time[0]:.2f}s")
-    print(f"  First .npy pt (t,x,y,z): {ref_npy_time[0]:.3f}, {ref_npy_px[0]:.3f}, {ref_npy_py[0]:.3f}, {ref_npy_pz[0]:.3f}")
-    if ref_traj_npy.shape[0] > 1:
-        print(f"  Second .npy pt (t,x,y,z): {ref_npy_time[1]:.3f}, {ref_npy_px[1]:.3f}, {ref_npy_py[1]:.3f}, {ref_npy_pz[1]:.3f}")
+    # --- 1. Load Reference Trajectory from .npy file (COMMENTED OUT) ---
+    # if not os.path.exists(args.ref_traj_file):
+    #     print(f"Error: Ref trajectory file not found: {args.ref_traj_file}"); return
+    # ref_traj_npy = np.load(args.ref_traj_file)
+    # ref_npy_time = ref_traj_npy[:, 0]
+    # ref_npy_px = ref_traj_npy[:, 1]; ref_npy_py = ref_traj_npy[:, 2]; ref_npy_pz = ref_traj_npy[:, 3]
+    # print(f"Loaded reference trajectory '{os.path.basename(args.ref_traj_file)}' ({ref_traj_npy.shape[0]} pts). Duration: {ref_npy_time[-1] - ref_npy_time[0]:.2f}s")
+    # print(f"  First .npy pt (t,x,y,z): {ref_npy_time[0]:.3f}, {ref_npy_px[0]:.3f}, {ref_npy_py[0]:.3f}, {ref_npy_pz[0]:.3f}")
+    # if ref_traj_npy.shape[0] > 1:
+    #     print(f"  Second .npy pt (t,x,y,z): {ref_npy_time[1]:.3f}, {ref_npy_px[1]:.3f}, {ref_npy_py[1]:.3f}, {ref_npy_pz[1]:.3f}")
 
     # --- 2. Read Rosbag Data ---
     if not os.path.exists(args.bag_file): print(f"Error: Rosbag not found: {args.bag_file}"); return
@@ -69,6 +94,7 @@ def main(args):
     bag_vel_body_times, bag_vx_body,bag_vy_body,bag_vz_body = [[] for _ in range(4)]
     bag_log_times, bag_log_px_ref,bag_log_py_ref,bag_log_pz_ref = [[] for _ in range(4)]
     bag_log_vx_ref,bag_log_vy_ref,bag_log_vz_ref = [[] for _ in range(3)]
+    bag_log_q_ref_w, bag_log_q_ref_x, bag_log_q_ref_y, bag_log_q_ref_z = [[] for _ in range(4)] # For commanded quaternion
     rosout_log_messages = []
     fsm_status_changes = []
 
@@ -81,8 +107,13 @@ def main(args):
         elif topic == args.velocity_topic:
             msg=deserialize_message(data,TwistStampedMsg); bag_vel_body_times.append(ros_time_sec); bag_vx_body.append(msg.twist.linear.x); bag_vy_body.append(msg.twist.linear.y); bag_vz_body.append(msg.twist.linear.z)
         elif topic == args.control_log_topic:
-            msg=deserialize_message(data,ControllerLogMsg); bag_log_times.append(ros_time_sec); bag_log_px_ref.append(msg.reference_position.x); bag_log_py_ref.append(msg.reference_position.y); bag_log_pz_ref.append(msg.reference_position.z)
+            msg=deserialize_message(data,ControllerLogMsg); bag_log_times.append(ros_time_sec)
+            bag_log_px_ref.append(msg.reference_position.x); bag_log_py_ref.append(msg.reference_position.y); bag_log_pz_ref.append(msg.reference_position.z)
             bag_log_vx_ref.append(msg.reference_velocity.x); bag_log_vy_ref.append(msg.reference_velocity.y); bag_log_vz_ref.append(msg.reference_velocity.z)
+            bag_log_q_ref_w.append(msg.reference_orientation_desired.w)
+            bag_log_q_ref_x.append(msg.reference_orientation_desired.x)
+            bag_log_q_ref_y.append(msg.reference_orientation_desired.y)
+            bag_log_q_ref_z.append(msg.reference_orientation_desired.z)
         elif topic == args.rosout_topic and LogMsg:
             msg = deserialize_message(data, LogMsg); rosout_log_messages.append((ros_time_sec, msg.name, msg.msg))
         elif topic == args.fsm_status_topic and BoolMsg:
@@ -93,6 +124,9 @@ def main(args):
     bag_vel_body_times=np.array(bag_vel_body_times); bag_vx_body=np.array(bag_vx_body); bag_vy_body=np.array(bag_vy_body); bag_vz_body=np.array(bag_vz_body)
     bag_log_times=np.array(bag_log_times); bag_log_px_ref=np.array(bag_log_px_ref); bag_log_py_ref=np.array(bag_log_py_ref); bag_log_pz_ref=np.array(bag_log_pz_ref)
     bag_log_vx_ref=np.array(bag_log_vx_ref); bag_log_vy_ref=np.array(bag_log_vy_ref); bag_log_vz_ref=np.array(bag_log_vz_ref)
+    bag_log_q_ref_w = np.array(bag_log_q_ref_w); bag_log_q_ref_x = np.array(bag_log_q_ref_x)
+    bag_log_q_ref_y = np.array(bag_log_q_ref_y); bag_log_q_ref_z = np.array(bag_log_q_ref_z)
+
     if len(bag_log_times)==0: print("Error: No control_log msgs."); return
     if len(bag_pose_times)==0: print("Error: No pose msgs."); return
     max_bag_time = max(bag_pose_times.max() if len(bag_pose_times)>0 else 0, bag_log_times.max() if len(bag_log_times)>0 else 0)
@@ -110,28 +144,12 @@ def main(args):
                 print(f"  Found FSM log for EXEC START: '{fsm_start_exec_log_msg_text}' at ROS time: {t:.3f}s.")
                 break
     if traj_exec_start_ros_time < 0: 
-        print("  Warning: FSM log for EXEC START not found. Using p_ref sequence fallback.")
-        p_npy_start = np.array([ref_npy_px[0], ref_npy_py[0], ref_npy_pz[0]])
-        p_npy_second = np.array([ref_npy_px[1], ref_npy_py[1], ref_npy_pz[1]]) if ref_traj_npy.shape[0] > 1 else p_npy_start
-        dt_npy = (ref_npy_time[1] - ref_npy_time[0]) if ref_traj_npy.shape[0] > 1 else 0.02
-        for i in range(len(bag_log_times) - 1):
-            p_log_curr = np.array([bag_log_px_ref[i], bag_log_py_ref[i], bag_log_pz_ref[i]])
-            p_log_next = np.array([bag_log_px_ref[i+1], bag_log_py_ref[i+1], bag_log_pz_ref[i+1]])
-            if (np.linalg.norm(p_log_curr - p_npy_start) < args.start_match_threshold and
-                np.linalg.norm(p_log_next - p_npy_second) < args.start_match_threshold):
-                dt_log = bag_log_times[i+1] - bag_log_times[i]
-                if abs(dt_log - dt_npy) < (dt_npy / 2.0 + 0.005):
-                    traj_exec_start_ros_time = bag_log_times[i]; print(f"    Fallback: p_ref seq match. Start: {traj_exec_start_ros_time:.3f}s (idx {i})"); break
-        if traj_exec_start_ros_time < 0:
-            print("    Warning: p_ref seq match failed. Using first P_npy[0] match fallback.")
-            for i in range(len(bag_log_times)):
-                if np.linalg.norm(np.array([bag_log_px_ref[i],bag_log_py_ref[i],bag_log_pz_ref[i]]) - p_npy_start) < args.start_match_threshold:
-                    traj_exec_start_ros_time = bag_log_times[i]; print(f"      Fallback-2: First P_npy[0] match. Start: {traj_exec_start_ros_time:.3f}s"); break
+        print("  Warning: FSM log for EXEC START not found. Using first control_log timestamp as fallback.")
+        if len(bag_log_times) > 0:
+            traj_exec_start_ros_time = bag_log_times[0]
+            print(f"    Fallback: Using first control_log time: {traj_exec_start_ros_time:.3f}s")
     if traj_exec_start_ros_time < 0: print("Error: CRITICAL - Could not identify EXEC START. Cannot plot."); return
     
-    # Diagnostic print (still useful to see what p_ref does around the identified start)
-    # ... (This diagnostic print can be kept or commented if too verbose for the user) ...
-
     # --- 4. Plot END Time Identification (End of Landing) ---
     print("Identifying plot END time (end of LANDING)...")
     plot_end_ros_time = -1.0
@@ -150,9 +168,6 @@ def main(args):
         plot_end_ros_time = max_bag_time
         print(f"  Warning: FSM LANDED signal not found. Plotting until end of bag data: {plot_end_ros_time:.3f}s.")
 
-    ref_file_time_offset = ref_npy_time[0]
-    traj_npy_duration = ref_npy_time[-1] - ref_file_time_offset
-    print(f"  .npy trajectory duration (from file): {traj_npy_duration:.3f}s")
     print(f"  Effective plotting window in ROS time for bag data: [{traj_exec_start_ros_time:.3f}s, {plot_end_ros_time:.3f}s] (Padding: {args.plot_time_padding}s)")
 
     # --- 5. Filter and Align Data for the new extended window ---
@@ -184,29 +199,28 @@ def main(args):
     cmd_ref_time_rel = bag_log_times[log_indices] - traj_exec_start_ros_time
     cmd_ref_px_filt = bag_log_px_ref[log_indices]; cmd_ref_py_filt = bag_log_py_ref[log_indices]; cmd_ref_pz_filt = bag_log_pz_ref[log_indices]
     cmd_ref_vx_filt = bag_log_vx_ref[log_indices]; cmd_ref_vy_filt = bag_log_vy_ref[log_indices]; cmd_ref_vz_filt = bag_log_vz_ref[log_indices]
+    # Filter commanded orientations
+    cmd_ref_orientations_filt = np.array([]) # Default to empty
+    if len(bag_log_q_ref_w) > 0: # Check if data was loaded
+        cmd_ref_qw_filt = bag_log_q_ref_w[log_indices]
+        cmd_ref_qx_filt = bag_log_q_ref_x[log_indices]
+        cmd_ref_qy_filt = bag_log_q_ref_y[log_indices]
+        cmd_ref_qz_filt = bag_log_q_ref_z[log_indices]
+        if len(cmd_ref_qw_filt) > 0: # Ensure filtered data is not empty
+            cmd_ref_orientations_filt = np.array([cmd_ref_qw_filt, cmd_ref_qx_filt, cmd_ref_qy_filt, cmd_ref_qz_filt]).T
     print(f"  Filtered control_log data points for plot: {len(cmd_ref_time_rel)}")
-
-    # .npy file data: still useful to know its properties, but not plotted
-    # ref_file_time_rel = ref_npy_time - ref_file_time_offset
-    # npy_plot_indices = ref_file_time_rel <= traj_npy_duration + 0.01 
-    # ref_file_time_plot = ref_file_time_rel[npy_plot_indices]
-    # ref_npy_px_plot = ref_npy_px[npy_plot_indices]; ref_npy_py_plot = ref_npy_py[npy_plot_indices]; ref_npy_pz_plot = ref_npy_pz[npy_plot_indices]
-    # ref_npy_vx_plot = ref_npy_vx[npy_plot_indices]; ref_npy_vy_plot = ref_npy_vy[npy_plot_indices]; ref_npy_vz_plot = ref_npy_vz[npy_plot_indices]
-    # print(f"  (.npy ref data points, not plotted: {len(ref_file_time_plot)})")
     
     # --- 6. Plotting ---
-    print("Plotting results (EXECUTE_TRAJECTORY to LANDING, .npy ref commented out)...")
+    print("Plotting results (EXECUTE_TRAJECTORY to LANDING)...")
     fig_3d = plt.figure(figsize=(12, 9)) 
     ax_3d = fig_3d.add_subplot(111, projection='3d')
     if len(actual_px_filt)>0 : ax_3d.plot(actual_px_filt, actual_py_filt, actual_pz_filt, label='Actual Trajectory (Bag)', color='b', alpha=0.9, linewidth=1.5)
     if len(cmd_ref_px_filt)>0 : ax_3d.plot(cmd_ref_px_filt, cmd_ref_py_filt, cmd_ref_pz_filt, label='Commanded Ref (Log)', linestyle='--', color='g', alpha=0.9, linewidth=1.5)
-    # ax_3d.plot(ref_npy_px_plot, ref_npy_py_plot, ref_npy_pz_plot, label='.npy File Ref (Exec Phase)', linestyle=':', color='r', alpha=0.7, linewidth=1) # COMMENTED OUT
     if len(actual_px_filt)>0 : ax_3d.scatter(actual_px_filt[0], actual_py_filt[0], actual_pz_filt[0], c='blue', marker='o', s=80, label='Actual Start on Plot', depthshade=False, zorder=5)
-    # ax_3d.scatter(ref_npy_px_plot[0], ref_npy_py_plot[0], ref_npy_pz_plot[0], c='red', marker='x', s=80, label='.npy Start on Plot', depthshade=False, zorder=5) # COMMENTED OUT
     if len(actual_px_filt)>0 : ax_3d.scatter(actual_px_filt[-1], actual_py_filt[-1], actual_pz_filt[-1], c='cyan', marker='s', s=80, label='Actual End on Plot', depthshade=False, zorder=5)
     ax_3d.set_xlabel('X Position (m)'); ax_3d.set_ylabel('Y Position (m)'); ax_3d.set_zlabel('Z Position (m)')
     ax_3d.set_title('3D Trajectory Comparison (Execute Phase to Landing)', fontsize=16); ax_3d.legend(); ax_3d.grid(True)
-    if len(actual_px_filt)>0 or len(cmd_ref_px_filt)>0: # Adjusted for commented .npy
+    if len(actual_px_filt)>0 or len(cmd_ref_px_filt)>0: 
         all_x_plot = []; all_y_plot = []; all_z_plot = []
         if len(actual_px_filt) > 0: all_x_plot.append(actual_px_filt); all_y_plot.append(actual_py_filt); all_z_plot.append(actual_pz_filt)
         if len(cmd_ref_px_filt) > 0: all_x_plot.append(cmd_ref_px_filt); all_y_plot.append(cmd_ref_py_filt); all_z_plot.append(cmd_ref_pz_filt)
@@ -220,41 +234,41 @@ def main(args):
     plt.tight_layout()
 
     fig_pos, axs_pos = plt.subplots(3, 1, figsize=(15, 10), sharex=True) 
-    fig_pos.suptitle(f'Position vs. Time (Execute Phase to Landing)\nBag: {os.path.basename(args.bag_file)}', fontsize=14) # Removed ref from title
+    fig_pos.suptitle(f'Position vs. Time (Execute Phase to Landing)\nBag: {os.path.basename(args.bag_file)}', fontsize=14)
     common_time_label = 'Time since Identified Trajectory Execution Start (s)'
     axs_pos[0].plot(actual_time_rel, actual_px_filt, label='Actual X (Bag)'); axs_pos[0].plot(cmd_ref_time_rel, cmd_ref_px_filt, label='Cmd Ref X (Log)', linestyle='--'); 
-    # axs_pos[0].plot(ref_file_time_plot, ref_npy_px_plot, label='.npy Ref X (Exec Phase)', linestyle=':'); # COMMENTED OUT
     axs_pos[0].set_ylabel('X Pos (m)'); axs_pos[0].legend(); axs_pos[0].grid(True)
     axs_pos[1].plot(actual_time_rel, actual_py_filt, label='Actual Y (Bag)'); axs_pos[1].plot(cmd_ref_time_rel, cmd_ref_py_filt, label='Cmd Ref Y (Log)', linestyle='--'); 
-    # axs_pos[1].plot(ref_file_time_plot, ref_npy_py_plot, label='.npy Ref Y (Exec Phase)', linestyle=':'); # COMMENTED OUT
     axs_pos[1].set_ylabel('Y Pos (m)'); axs_pos[1].legend(); axs_pos[1].grid(True)
     axs_pos[2].plot(actual_time_rel, actual_pz_filt, label='Actual Z (Bag)'); axs_pos[2].plot(cmd_ref_time_rel, cmd_ref_pz_filt, label='Cmd Ref Z (Log)', linestyle='--'); 
-    # axs_pos[2].plot(ref_file_time_plot, ref_npy_pz_plot, label='.npy Ref Z (Exec Phase)', linestyle=':'); # COMMENTED OUT
     axs_pos[2].set_ylabel('Z Pos (m)'); axs_pos[2].set_xlabel(common_time_label); axs_pos[2].legend(); axs_pos[2].grid(True)
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
     fig_vel, axs_vel = plt.subplots(3, 1, figsize=(15, 10), sharex=True)
-    fig_vel.suptitle(f'Velocity vs. Time (World Frame, Execute Phase to Landing)\nBag: {os.path.basename(args.bag_file)}', fontsize=14) # Removed ref from title
+    fig_vel.suptitle(f'Velocity vs. Time (World Frame, Execute Phase to Landing)\nBag: {os.path.basename(args.bag_file)}', fontsize=14)
     if len(actual_vel_time_rel) > 0: axs_vel[0].plot(actual_vel_time_rel, actual_vx_world_filt, label='Actual VX (World)')
     axs_vel[0].plot(cmd_ref_time_rel, cmd_ref_vx_filt, label='Cmd Ref VX (Log)', linestyle='--'); 
-    # axs_vel[0].plot(ref_file_time_plot, ref_npy_vx_plot, label='.npy Ref VX (Exec Phase)', linestyle=':'); # COMMENTED OUT
     axs_vel[0].set_ylabel('VX Vel (m/s)'); axs_vel[0].legend(); axs_vel[0].grid(True)
     if len(actual_vel_time_rel) > 0: axs_vel[1].plot(actual_vel_time_rel, actual_vy_world_filt, label='Actual VY (World)')
     axs_vel[1].plot(cmd_ref_time_rel, cmd_ref_vy_filt, label='Cmd Ref VY (Log)', linestyle='--'); 
-    # axs_vel[1].plot(ref_file_time_plot, ref_npy_vy_plot, label='.npy Ref VY (Exec Phase)', linestyle=':'); # COMMENTED OUT
     axs_vel[1].set_ylabel('VY Vel (m/s)'); axs_vel[1].legend(); axs_vel[1].grid(True)
     if len(actual_vel_time_rel) > 0: axs_vel[2].plot(actual_vel_time_rel, actual_vz_world_filt, label='Actual VZ (World)')
     axs_vel[2].plot(cmd_ref_time_rel, cmd_ref_vz_filt, label='Cmd Ref VZ (Log)', linestyle='--'); 
-    # axs_vel[2].plot(ref_file_time_plot, ref_npy_vz_plot, label='.npy Ref VZ (Exec Phase)', linestyle=':'); # COMMENTED OUT
     axs_vel[2].set_ylabel('VZ Vel (m/s)'); axs_vel[2].set_xlabel(common_time_label); axs_vel[2].legend(); axs_vel[2].grid(True)
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+
+    # --- 7. Plot Quaternion Comparison ---
+    print("Plotting Quaternion Comparison...")
+    plot_quaternion_comparison(actual_time_rel, actual_orientations_filt, 
+                               cmd_ref_time_rel, cmd_ref_orientations_filt, 
+                               args.bag_file)
     
     plt.show()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Plot trajectory tracking performance from a rosbag, from trajectory execution through landing.")
     parser.add_argument('--bag_file', type=str, required=True, help='Path to the rosbag directory.')
-    parser.add_argument('--ref_traj_file', type=str, required=True, help='Path to the .npy reference trajectory file (used for duration and start point matching).')
+    # parser.add_argument('--ref_traj_file', type=str, required=True, help='Path to the .npy reference trajectory file (used for duration and start point matching).') # COMMENTED OUT
     parser.add_argument('--pose_topic', type=str, default='/mavros/local_position/pose', help='Topic for vehicle pose.')
     parser.add_argument('--velocity_topic', type=str, default='/mavros/local_position/velocity_body', help='Topic for vehicle velocity (body frame).')
     parser.add_argument('--control_log_topic', type=str, default='/mlac_mission_node/control_log', help='Topic for controller log.')
@@ -262,7 +276,14 @@ if __name__ == '__main__':
     parser.add_argument('--fsm_logger_name', type=str, default='mlac_mission_node', help="Node name of the FSM logger (for /rosout parsing).")
     parser.add_argument('--fsm_status_topic',type=str,default='/mlac_mission_node/trajectory_complete_status', help='Topic for FSM trajectory complete status (std_msgs/Bool).')
     parser.add_argument('--storage_id', type=str, default='sqlite3', help='Rosbag storage ID.')
-    parser.add_argument('--start_match_threshold', type=float, default=0.3, help='Pos error threshold (m) to match .npy start with control_log.p_ref for fallback.')
+    # parser.add_argument('--start_match_threshold', type=float, default=0.3, help='Pos error threshold (m) to match .npy start with control_log.p_ref for fallback.') # COMMENTED OUT
     parser.add_argument('--plot_time_padding', type=float, default=1.0, help='Extra time padding (s) for plotting beyond identified end time.')
     cli_args = parser.parse_args()
+    
+    # --- Remove check for ref_traj_file as it's commented out ---
+    # if not cli_args.ref_traj_file:
+    #     print("Error: --ref_traj_file argument is required.")
+    #     parser.print_help()
+    #     exit(1)
+
     main(cli_args)

@@ -31,15 +31,16 @@ class MlacMissionNode(Node):
         self.declare_parameter('controller_type', 'pid', ParameterDescriptor(description="Controller type: 'pid', 'coml', or 'coml_debug'"))
         self.declare_parameter('control_loop_rate_hz', 50.0, ParameterDescriptor(description="Rate of the main control loop"))
         self.declare_parameter('trajectory_file_name', 'circle_trajectory_8col_50hz.npy', ParameterDescriptor(description="Name of the .npy trajectory file in 'mlac_sim/traj_data/' folder"))
+        self.declare_parameter('trajectory_index', 0, ParameterDescriptor(description="Index of the trajectory to use if the .npy file contains multiple trajectories. Default is 0."))
         # self.declare_parameter('vehicle_mass', 4.562, ParameterDescriptor(description="Vehicle mass (kg)"))
         self.declare_parameter('vehicle_mass', 2.0, ParameterDescriptor(description="Vehicle mass (kg)"))
-        self.declare_parameter('Kp', [7.0, 7.0, 7.0], ParameterDescriptor(description="Proportional gains [Px, Py, Pz]"))
-        self.declare_parameter('Ki', [0.5, 0.5, 0.5], ParameterDescriptor(description="Integral gains [Ix, Iy, Iz]"))
-        self.declare_parameter('Kd', [4.0, 4.0, 4.0], ParameterDescriptor(description="Derivative gains [Dx, Dy, Dz]"))
+        self.declare_parameter('Kp', [2.0, 2.0, 2.0], ParameterDescriptor(description="Proportional gains [Px, Py, Pz]"))
+        self.declare_parameter('Ki', [0.0, 0.0, 0.0], ParameterDescriptor(description="Integral gains [Ix, Iy, Iz]"))
+        self.declare_parameter('Kd', [5.0, 5.0, 5.0], ParameterDescriptor(description="Derivative gains [Dx, Dy, Dz]"))
         self.declare_parameter('max_pos_err', [0.5, 0.5, 0.5], ParameterDescriptor(description="Max position error for PID saturation [err_x, err_y, err_z]"))
         self.declare_parameter('max_vel_err', [1.0, 1.0, 1.0], ParameterDescriptor(description="Max velocity error for PID saturation [verr_x, verr_y, verr_z]"))
         # self.declare_parameter('max_thrust_N', 2.2*25.0, ParameterDescriptor(description="Max thrust capability (N)"))
-        self.declare_parameter('max_thrust_N', 25.0, ParameterDescriptor(description="Max thrust capability (N)"))
+        self.declare_parameter('max_thrust_N', 2.0 * 9.8 / 0.728, ParameterDescriptor(description="Max thrust capability (N)"))
 
         # New Mission Logic Parameters for FSM
         self.declare_parameter('initial_hover_position', [0.0, 0.0, 2.0], ParameterDescriptor(description="Initial hover position [x, y, z] (m)"))
@@ -54,6 +55,7 @@ class MlacMissionNode(Node):
         # --- Get Parameters ---
         self.controller_type = self.get_parameter('controller_type').get_parameter_value().string_value
         self.trajectory_file_name = self.get_parameter('trajectory_file_name').get_parameter_value().string_value
+        self.trajectory_index = self.get_parameter('trajectory_index').get_parameter_value().integer_value
         self.max_thrust_N = self.get_parameter('max_thrust_N').get_parameter_value().double_value
         self.control_loop_rate = self.get_parameter('control_loop_rate_hz').get_parameter_value().double_value
 
@@ -67,6 +69,8 @@ class MlacMissionNode(Node):
         self.controller_params.Kd = np.array(self.get_parameter('Kd').get_parameter_value().double_array_value)
         self.controller_params.maxPosErr = np.array(self.get_parameter('max_pos_err').get_parameter_value().double_array_value)
         self.controller_params.maxVelErr = np.array(self.get_parameter('max_vel_err').get_parameter_value().double_array_value)
+
+        self.loaded_trajectory_data: np.ndarray | None = None
         
         # --- Node State Variables ---
         self.current_vehicle_state_py = StateClass()
@@ -134,26 +138,44 @@ class MlacMissionNode(Node):
 
     def _load_trajectory(self):
         try:
-            package_share_path = get_package_share_directory('mlac_sim')
+            package_share_path = get_package_share_directory('mlac_sim') # Ensure 'mlac_sim' is your package name
             traj_path = os.path.join(package_share_path, 'traj_data', self.trajectory_file_name)
+            
             if os.path.exists(traj_path):
-                self.loaded_trajectory_data = np.load(traj_path)
-                if self.loaded_trajectory_data.ndim != 2 or self.loaded_trajectory_data.shape[0] < 2 or self.loaded_trajectory_data.shape[1] < 8:
-                    self.get_logger().error(f"Trajectory file '{traj_path}' has incorrect shape: {self.loaded_trajectory_data.shape}. Needs at least 2 points and 8 columns (t,p,v,psi).")
-                    self.loaded_trajectory_data = None
+                all_trajectories_data = np.load(traj_path)
+                
+                # Check shape and select trajectory
+                if all_trajectories_data.ndim == 3: # Batch of trajectories
+                    num_trajectories_in_file = all_trajectories_data.shape[0]
+                    if 0 <= self.trajectory_index < num_trajectories_in_file:
+                        self.loaded_trajectory_data = all_trajectories_data[self.trajectory_index]
+                        self.get_logger().info(f"Loaded trajectory index {self.trajectory_index} from batch file '{self.trajectory_file_name}' ({self.loaded_trajectory_data.shape[0]} points).")
+                    else:
+                        self.get_logger().error(f"Trajectory index {self.trajectory_index} is out of bounds for file '{self.trajectory_file_name}' which has {num_trajectories_in_file} trajectories.")
+                        self.loaded_trajectory_data = None
+                elif all_trajectories_data.ndim == 2: # Single trajectory
+                    self.loaded_trajectory_data = all_trajectories_data
+                    self.get_logger().info(f"Loaded single trajectory from file '{self.trajectory_file_name}' ({self.loaded_trajectory_data.shape[0]} points).")
                 else:
-                    self.get_logger().info(f"Trajectory '{self.trajectory_file_name}' loaded successfully ({self.loaded_trajectory_data.shape[0]} points).")
+                    self.get_logger().error(f"Trajectory file '{traj_path}' has unexpected shape: {all_trajectories_data.shape}. Expected 2D or 3D array.")
+                    self.loaded_trajectory_data = None
+
+                # Validate columns if a trajectory was successfully selected/loaded
+                if self.loaded_trajectory_data is not None:
+                    if self.loaded_trajectory_data.ndim != 2 or self.loaded_trajectory_data.shape[0] < 2 or self.loaded_trajectory_data.shape[1] < 8:
+                        self.get_logger().error(f"Selected trajectory has incorrect shape: {self.loaded_trajectory_data.shape}. Needs at least 2 points and 8 columns (t,p,v,psi).")
+                        self.loaded_trajectory_data = None
             else:
                 self.get_logger().error(f"Trajectory file not found: {traj_path}")
                 self.loaded_trajectory_data = None
         except Exception as e:
             self.get_logger().error(f"Failed to load trajectory '{self.trajectory_file_name}': {e}\n{traceback.format_exc()}")
             self.loaded_trajectory_data = None
-        
-        # Inform FSM about the (potentially new) trajectory data
-        if hasattr(self, 'mission_fsm'): # Ensure FSM is initialized
-             self.mission_fsm.set_trajectory_data(self.loaded_trajectory_data)
 
+        if hasattr(self, 'mission_fsm'): 
+             self.mission_fsm.set_trajectory_data(self.loaded_trajectory_data)
+        else:
+             self.get_logger().warn("_load_trajectory: MissionFSM not yet initialized when trying to set trajectory data.")
 
     def mavros_state_callback(self, msg: MavrosState):
         self.current_mavros_state = msg
