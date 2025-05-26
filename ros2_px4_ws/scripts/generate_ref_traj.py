@@ -49,7 +49,8 @@ def generate_circle_data(T, dt, radius, center_x, center_y, alt, initial_yaw_rad
     trajectory_data[:, 5] = radius * omega * np.cos(theta_for_pos)  
     trajectory_data[:, 6] = 0.0 
     calculated_psi = theta_for_pos + np.pi / 2.0
-    trajectory_data[:, 7] = (calculated_psi + np.pi) % (2 * np.pi) - np.pi
+    # trajectory_data[:, 7] = (calculated_psi + np.pi) % (2 * np.pi) - np.pi
+    trajectory_data[:, 7] = 0.0
     
     if num_cols_output >= 11:
         trajectory_data[:, 8] = -radius * omega**2 * np.cos(theta_for_pos)  
@@ -113,9 +114,10 @@ def generate_setpoint_rotating_yaw_trajectory(dt, setpoint_x, setpoint_y, setpoi
     # Columns 4, 5, 6 (vel_x, vel_y, vel_z) remain zero
     
     # Calculate yaw (psi) at each time step
-    psi_values = initial_yaw_rad + yaw_rate_rps * times
+    # psi_values = initial_yaw_rad + yaw_rate_rps * times
+    psi_values = initial_yaw_rad
     # Normalize psi to [-pi, pi]
-    trajectory_data[:, 7] = (psi_values + np.pi) % (2 * np.pi) - np.pi
+    trajectory_data[:, 7] = initial_yaw_rad
 
     # Columns 8-10 (accel_x, y, z) remain zero
     # Columns 11-13 (jerk_x, y, z) remain zero
