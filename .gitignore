@@ -43,6 +43,9 @@ env/
 Thumbs.db
 desktop.ini
 
+# Ignore testing whiteboard directories
+*/whiteboard
+
 # Optional: Ignore compiled object files/libraries if they appear outside build/install
 # *.o
 # *.so
