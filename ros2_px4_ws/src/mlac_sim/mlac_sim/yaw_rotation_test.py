@@ -1,0 +1,223 @@
+#!/usr/bin/env python3
+
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
+from rclpy.time import Time
+
+from mavros_msgs.msg import AttitudeTarget, State as MavrosState
+from geometry_msgs.msg import Quaternion, PoseStamped 
+from std_msgs.msg import Header 
+import numpy as np
+import math
+
+# ++ ADD euler_from_quaternion function here ++
+def euler_from_quaternion(w, x, y, z):
+    """
+    Convert a quaternion into euler angles (roll, pitch, yaw)
+    roll is rotation around x in radians (counterclockwise)
+    pitch is rotation around y in radians (counterclockwise)
+    yaw is rotation around z in radians (counterclockwise)
+    """
+    t0 = +2.0 * (w * x + y * z)
+    t1 = +1.0 - 2.0 * (x * x + y * y)
+    roll_x = math.atan2(t0, t1)
+    
+    t2 = +2.0 * (w * y - z * x)
+    # Clip t2 to avoid domain errors with asin
+    t2 = +1.0 if t2 > +1.0 else t2
+    t2 = -1.0 if t2 < -1.0 else t2
+    pitch_y = math.asin(t2)
+    
+    t3 = +2.0 * (w * z + x * y)
+    t4 = +1.0 - 2.0 * (y * y + z * z)
+    yaw_z = math.atan2(t3, t4)
+    
+    return roll_x, pitch_y, yaw_z # in radians
+# ++ END ADDITION ++
+
+
+def euler_to_quaternion(roll, pitch, yaw):
+    # ... (rest of your euler_to_quaternion function, ensure it's also defined or imported)
+    cy = math.cos(yaw * 0.5)
+    sy = math.sin(yaw * 0.5)
+    cp = math.cos(pitch * 0.5)
+    sp = math.sin(pitch * 0.5)
+    cr = math.cos(roll * 0.5)
+    sr = math.sin(roll * 0.5)
+
+    qw = cr * cp * cy + sr * sp * sy
+    qx = sr * cp * cy - cr * sp * sy
+    qy = cr * sp * cy + sr * cp * sy
+    qz = cr * cp * sy - sr * sp * cy
+    return Quaternion(w=qw, x=qx, y=qy, z=qz)
+
+class YawRotationSanityCheckNode(Node):
+    def __init__(self):
+        super().__init__('yaw_rotation_sanity_check_node')
+
+        self.declare_parameter('publish_rate_hz', 50.0)
+        self.declare_parameter('hover_thrust', 0.728) 
+        self.declare_parameter('yaw_rate_dps', 15.0) 
+        self.declare_parameter('initial_delay_sec', 5.0)
+        self.declare_parameter('rotation_duration_sec', 25.0)
+        self.declare_parameter('initial_setpoint_x', 0.0) 
+        self.declare_parameter('initial_setpoint_y', 0.0) 
+        self.declare_parameter('initial_setpoint_z', 2.0) 
+
+        self.publish_rate = self.get_parameter('publish_rate_hz').value
+        self.hover_thrust = self.get_parameter('hover_thrust').value
+        self.yaw_rate_rps = math.radians(self.get_parameter('yaw_rate_dps').value)
+        self.initial_delay_sec = self.get_parameter('initial_delay_sec').value
+        self.rotation_duration_sec = self.get_parameter('rotation_duration_sec').value
+        self.initial_setpoint_x = self.get_parameter('initial_setpoint_x').value
+        self.initial_setpoint_y = self.get_parameter('initial_setpoint_y').value
+        self.initial_setpoint_z = self.get_parameter('initial_setpoint_z').value
+
+        if self.publish_rate <= 0:
+            self.get_logger().fatal("publish_rate_hz must be positive.")
+            rclpy.try_shutdown(); return
+        
+        self.timer_period = 1.0 / self.publish_rate
+
+        qos_profile_state = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.VOLATILE, history=HistoryPolicy.KEEP_LAST, depth=1)
+        qos_profile_setpoint = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, durability=DurabilityPolicy.VOLATILE, history=HistoryPolicy.KEEP_LAST, depth=1)
+
+        self.state_sub = self.create_subscription(MavrosState, '/mavros/state', self.mavros_state_callback, qos_profile_state)
+        self.local_pose_sub = self.create_subscription(PoseStamped, '/mavros/local_position/pose', self.local_pose_callback, qos_profile_setpoint)
+
+        self.attitude_setpoint_pub = self.create_publisher(AttitudeTarget, '/mavros/setpoint_raw/attitude', qos_profile_setpoint)
+
+        self.current_mavros_state = MavrosState()
+        self.current_local_pose = None 
+        self.got_first_local_pose = False
+
+        self.is_offboard_and_armed = False
+        self.mission_start_time = None 
+        self.current_yaw_angle = 0.0 
+        self.setpoint_streaming_active = False 
+
+        self.publish_timer = self.create_timer(self.timer_period, self.publish_setpoint_callback)
+        
+        self.get_logger().info("Yaw Rotation Sanity Check Node Initialized.")
+        self.get_logger().info(f" Will stream initial setpoints to enable OFFBOARD mode.")
+        self.get_logger().info(f" Once ARMED and OFFBOARD: Hover Thrust: {self.hover_thrust:.2f}, Yaw Rate: {self.get_parameter('yaw_rate_dps').value:.1f} dps")
+
+    def local_pose_callback(self, msg: PoseStamped):
+        self.current_local_pose = msg
+        if not self.got_first_local_pose:
+            self.got_first_local_pose = True
+            self.get_logger().info(f"First local pose received: P({msg.pose.position.x:.2f}, {msg.pose.position.y:.2f}, {msg.pose.position.z:.2f})")
+            if self.current_mavros_state.connected and not self.setpoint_streaming_active:
+                self.get_logger().info("MAVROS connected and pose received. Starting initial setpoint streaming.")
+                self.setpoint_streaming_active = True 
+
+    def mavros_state_callback(self, msg: MavrosState):
+        if not msg.connected and self.current_mavros_state.connected:
+            self.get_logger().warn("MAVROS disconnected. Stopping setpoint streaming.")
+            self.is_offboard_and_armed = False
+            self.mission_start_time = None
+            self.setpoint_streaming_active = False 
+
+        self.current_mavros_state = msg
+        
+        if self.current_mavros_state.connected and self.got_first_local_pose and not self.setpoint_streaming_active:
+            self.get_logger().info("MAVROS connected and pose available. Starting initial setpoint streaming (from mavros_state_cb).")
+            self.setpoint_streaming_active = True
+
+        is_now_offboard_and_armed = msg.connected and msg.armed and msg.mode == "OFFBOARD"
+
+        if is_now_offboard_and_armed and not self.is_offboard_and_armed:
+            self.get_logger().info("Switched to OFFBOARD mode and ARMED.")
+            self.mission_start_time = self.get_clock().now() 
+            self.current_yaw_angle = 0.0 
+        
+        self.is_offboard_and_armed = is_now_offboard_and_armed
+
+    def publish_setpoint_callback(self):
+        if not self.current_mavros_state.connected or not self.setpoint_streaming_active:
+            if not self.current_mavros_state.connected:
+                self.get_logger().warn("Setpoint publisher: MAVROS not connected.", throttle_duration_sec=5.0)
+            if not self.setpoint_streaming_active:
+                 self.get_logger().info("Setpoint publisher: Waiting for conditions to start streaming (e.g. first local pose).", throttle_duration_sec=5.0)
+            return
+
+        now = self.get_clock().now()
+        att_msg = AttitudeTarget()
+        att_msg.header = Header(stamp=now.to_msg(), frame_id="map") 
+
+        if self.is_offboard_and_armed and self.mission_start_time is not None:
+            elapsed_time_since_mission_start = (now - self.mission_start_time).nanoseconds / 1e9
+            att_msg.thrust = float(self.hover_thrust)
+            roll_angle = 0.0
+            pitch_angle = 0.0
+            target_yaw_this_step = self.current_yaw_angle
+            current_desired_yaw_rate = 0.0
+
+            if elapsed_time_since_mission_start > self.initial_delay_sec:
+                time_into_rotation = elapsed_time_since_mission_start - self.initial_delay_sec
+                if time_into_rotation <= self.rotation_duration_sec :
+                    self.current_yaw_angle += self.yaw_rate_rps * self.timer_period 
+                    target_yaw_this_step = self.current_yaw_angle
+                    current_desired_yaw_rate = self.yaw_rate_rps
+            
+            target_yaw_this_step = (target_yaw_this_step + math.pi) % (2 * math.pi) - math.pi
+            att_msg.orientation = euler_to_quaternion(roll_angle, pitch_angle, target_yaw_this_step)
+
+            att_msg.body_rate.x = 0.0
+            att_msg.body_rate.y = 0.0
+            att_msg.body_rate.z = float(current_desired_yaw_rate)
+            # att_msg.type_mask = AttitudeTarget.IGNORE_ROLL_RATE | AttitudeTarget.IGNORE_PITCH_RATE
+            # for debugging, we can disable the yaw rate mask to see if it destablizes
+            att_msg.type_mask = AttitudeTarget.IGNORE_ROLL_RATE | AttitudeTarget.IGNORE_PITCH_RATE | AttitudeTarget.IGNORE_YAW_RATE
+            
+            if int(elapsed_time_since_mission_start * 10) % 20 == 0: 
+                self.get_logger().info(f"MISSION ACTIVE: t={elapsed_time_since_mission_start:.1f}s, Cmd Yaw={math.degrees(target_yaw_this_step):.1f}deg, Cmd YawRate={att_msg.body_rate.z:.2f}rps")
+        else:
+            if self.current_local_pose and self.current_local_pose.header.stamp.sec > 0:
+                # ++ Use the euler_from_quaternion function here ++
+                _ , _, current_actual_yaw = euler_from_quaternion(
+                    self.current_local_pose.pose.orientation.w,
+                    self.current_local_pose.pose.orientation.x,
+                    self.current_local_pose.pose.orientation.y,
+                    self.current_local_pose.pose.orientation.z
+                )
+                att_msg.orientation = euler_to_quaternion(0.0, 0.0, current_actual_yaw)
+            else:
+                att_msg.orientation = euler_to_quaternion(0.0, 0.0, 0.0) 
+            
+            att_msg.thrust = float(self.hover_thrust) 
+            att_msg.body_rate.x = 0.0
+            att_msg.body_rate.y = 0.0
+            att_msg.body_rate.z = 0.0
+            att_msg.type_mask = AttitudeTarget.IGNORE_ROLL_RATE | AttitudeTarget.IGNORE_PITCH_RATE | AttitudeTarget.IGNORE_YAW_RATE 
+            
+            self.get_logger().info("Streaming initial hover/hold setpoint to enable OFFBOARD.", throttle_duration_sec=2.0)
+
+        self.attitude_setpoint_pub.publish(att_msg)
+
+    def destroy_node(self):
+        if self.publish_timer is not None:
+            self.publish_timer.cancel()
+        super().destroy_node()
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = None
+    try:
+        node = YawRotationSanityCheckNode()
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        if node: node.get_logger().info("Ctrl+C detected, shutting down sanity check node.")
+    except Exception as e:
+        logger = rclpy.logging.get_logger("yaw_rotation_sanity_check_main")
+        if node: logger = node.get_logger()
+        logger.fatal(f"Unhandled exception: {e}\n{traceback.format_exc()}")
+    finally:
+        if node and rclpy.ok():
+            node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()

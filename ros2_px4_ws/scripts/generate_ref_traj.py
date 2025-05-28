@@ -42,28 +42,37 @@ def generate_circle_data(T, dt, radius, center_x, center_y, alt, initial_yaw_rad
     theta_pos_start = initial_yaw_rad - np.pi / 2.0
     theta_for_pos = omega * times + theta_pos_start
 
+    # Position (px, py, pz) - Cols 1, 2, 3
     trajectory_data[:, 1] = center_x + radius * np.cos(theta_for_pos)
     trajectory_data[:, 2] = center_y + radius * np.sin(theta_for_pos)
     trajectory_data[:, 3] = alt
+
+    # Velocity (vx, vy, vz) - Cols 4, 5, 6
     trajectory_data[:, 4] = -radius * omega * np.sin(theta_for_pos) 
     trajectory_data[:, 5] = radius * omega * np.cos(theta_for_pos)  
     trajectory_data[:, 6] = 0.0 
-    calculated_psi = theta_for_pos + np.pi / 2.0
-    # trajectory_data[:, 7] = (calculated_psi + np.pi) % (2 * np.pi) - np.pi
-    trajectory_data[:, 7] = 0.0
     
+    # Yaw (psi) - tangent to path - Col 7
+    calculated_psi = theta_for_pos + np.pi / 2.0
+    trajectory_data[:, 7] = (calculated_psi + np.pi) % (2 * np.pi) - np.pi
+    
+    # Acceleration (ax, ay, az) - Cols 8, 9, 10
     if num_cols_output >= 11:
         trajectory_data[:, 8] = -radius * omega**2 * np.cos(theta_for_pos)  
         trajectory_data[:, 9] = -radius * omega**2 * np.sin(theta_for_pos)  
         trajectory_data[:, 10] = 0.0 
+    
+    # Jerk (jx, jy, jz) - Cols 11, 12, 13
     if num_cols_output >= 14:
         trajectory_data[:, 11] = radius * omega**3 * np.sin(theta_for_pos)
         trajectory_data[:, 12] = -radius * omega**3 * np.cos(theta_for_pos)
         trajectory_data[:, 13] = 0.0
+        
+    # Desired Yaw Rate (dpsi) - Col 14 (if num_cols_output >= 15) or Col 8 (if num_cols_output == 9)
     if num_cols_output >= 15:
         trajectory_data[:, 14] = omega
     elif num_cols_output == 9 : 
-         trajectory_data[:, 8] = omega
+         trajectory_data[:, 8] = omega # dpsi in 9th column (index 8)
     return trajectory_data
 
 def generate_setpoint_hold_trajectory(dt, setpoint_x, setpoint_y, setpoint_z, duration, initial_psi_rad=0.0, num_cols_output=8):
@@ -73,63 +82,44 @@ def generate_setpoint_hold_trajectory(dt, setpoint_x, setpoint_y, setpoint_z, du
     times = np.arange(0, duration + dt/2, dt) 
     num_steps = len(times)
     trajectory_data = np.zeros((num_steps, num_cols_output))
+
     trajectory_data[:, 0] = times        
     trajectory_data[:, 1] = setpoint_x   
     trajectory_data[:, 2] = setpoint_y   
     trajectory_data[:, 3] = setpoint_z   
+    # Velocities (cols 4,5,6) are already zero
     trajectory_data[:, 7] = initial_psi_rad 
+    # Accelerations (cols 8,9,10 if num_cols_output >= 11) are already zero
+    # Jerks (cols 11,12,13 if num_cols_output >= 14) are already zero
+    # dPsi (col 14 if num_cols_output >= 15, or col 8 if num_cols_output == 9) is already zero
     return trajectory_data
 
 def generate_setpoint_rotating_yaw_trajectory(dt, setpoint_x, setpoint_y, setpoint_z, duration, 
                                              initial_yaw_rad=0.0, yaw_rate_rps=0.0, num_cols_output=8):
-    """
-    Generates a trajectory for holding a fixed setpoint with continuously rotating yaw.
-    Velocities, accelerations, and jerks are zero.
-
-    Args:
-        dt (float): Time step for sampling (seconds).
-        setpoint_x (float): Target X-coordinate.
-        setpoint_y (float): Target Y-coordinate.
-        setpoint_z (float): Target Z-coordinate.
-        duration (float): Total duration of the trajectory (seconds).
-        initial_yaw_rad (float): Starting yaw angle (radians).
-        yaw_rate_rps (float): Desired yaw rotation speed (radians per second).
-        num_cols_output (int): Total number of columns for the output .npy file.
-
-    Returns:
-        numpy.ndarray: An array with columns as specified.
-    """
     if duration <= 0 or dt <= 0:
         print("Error: Duration and time step (dt) must be positive.")
         return None
-
     times = np.arange(0, duration + dt/2, dt)
     num_steps = len(times)
     trajectory_data = np.zeros((num_steps, num_cols_output))
 
-    trajectory_data[:, 0] = times          # time
-    trajectory_data[:, 1] = setpoint_x     # pos_x
-    trajectory_data[:, 2] = setpoint_y     # pos_y
-    trajectory_data[:, 3] = setpoint_z     # pos_z
-    # Columns 4, 5, 6 (vel_x, vel_y, vel_z) remain zero
+    trajectory_data[:, 0] = times          
+    trajectory_data[:, 1] = setpoint_x     
+    trajectory_data[:, 2] = setpoint_y     
+    trajectory_data[:, 3] = setpoint_z     
+    # Velocities (cols 4,5,6) are zero
+    # Accelerations (cols 8,9,10 if num_cols_output >= 11) are zero
+    # Jerks (cols 11,12,13 if num_cols_output >= 14) are zero
     
-    # Calculate yaw (psi) at each time step
-    # psi_values = initial_yaw_rad + yaw_rate_rps * times
-    psi_values = initial_yaw_rad
-    # Normalize psi to [-pi, pi]
-    trajectory_data[:, 7] = initial_yaw_rad
+    psi_values = initial_yaw_rad + yaw_rate_rps * times
+    trajectory_data[:, 7] = (psi_values + np.pi) % (2 * np.pi) - np.pi # psi in col 7
 
-    # Columns 8-10 (accel_x, y, z) remain zero
-    # Columns 11-13 (jerk_x, y, z) remain zero
-    
-    # Desired Yaw Rate (dpsi) - Col 14 (if num_cols_output >= 15) or Col 8 (if num_cols_output == 9)
     if num_cols_output >= 15:
-        trajectory_data[:, 14] = yaw_rate_rps
-    elif num_cols_output == 9: # Special case for 9-column format
-        trajectory_data[:, 8] = yaw_rate_rps
+        trajectory_data[:, 14] = yaw_rate_rps # dpsi in col 14
+    elif num_cols_output == 9: 
+        trajectory_data[:, 8] = yaw_rate_rps # dpsi in col 8
         
     return trajectory_data
-
 
 # --- Main execution part ---
 if __name__ == "__main__":
@@ -149,8 +139,12 @@ if __name__ == "__main__":
                         help="Initial yaw in degrees.")
     parser.add_argument('--yaw_rate_dps', type=float, default=15.0, 
                         help="Yaw rotation speed in degrees per second (for setpoint_rotating_yaw).")
-    parser.add_argument('--num_cols', type=int, default=8, choices=[8, 9, 11, 15],
-                        help="Number of columns for the output .npy file.")
+    parser.add_argument('--num_cols', type=int, default=11, choices=[8, 9, 11, 15], # Defaulting to 11 to include accelerations
+                        help="Number of columns for the output .npy file. "
+                             "8=(t,p,v,psi); "
+                             "9=(t,p,v,psi,dpsi_col8); "
+                             "11=(t,p,v,psi,a); "
+                             "15=(t,p,v,psi,a,j,dpsi_col14).")
 
     args = parser.parse_args()
 
@@ -207,7 +201,7 @@ if __name__ == "__main__":
     elif args.type == 'setpoint_rotating_yaw':
         SETPOINT_X = args.pos_x
         SETPOINT_Y = args.pos_y
-        SETPOINT_Z = args.pos_z # Use pos_z for altitude
+        SETPOINT_Z = args.pos_z 
         DURATION = args.duration
         OUTPUT_FILENAME = (f"setpoint_rot_yaw_x{SETPOINT_X}_y{SETPOINT_Y}_z{SETPOINT_Z}_t{DURATION}s_"
                            f"initpsi{args.initial_yaw_deg:.0f}deg_rate{args.yaw_rate_dps:.0f}dps_"
@@ -245,7 +239,8 @@ if __name__ == "__main__":
             print(f"Initial Vx={trajectory_array[0,4]:.2f}, Vy={trajectory_array[0,5]:.2f}, Vz={trajectory_array[0,6]:.2f}")
             print(f"Initial Psi={trajectory_array[0,7]:.3f} rad ({np.rad2deg(trajectory_array[0,7]):.1f} deg)")
             if args.num_cols == 9 and trajectory_array.shape[1] > 8: print(f"Initial dPsi (col 8)={trajectory_array[0,8]:.3f} rad/s")
-            if args.num_cols == 15 and trajectory_array.shape[1] > 14: print(f"Initial dPsi (col 14)={trajectory_array[0,14]:.3f} rad/s")
+            if args.num_cols >= 11 and trajectory_array.shape[1] > 10: print(f"Initial Ax={trajectory_array[0,8]:.2f}, Ay={trajectory_array[0,9]:.2f}, Az={trajectory_array[0,10]:.2f}")
+            if args.num_cols >= 15 and trajectory_array.shape[1] > 14: print(f"Initial dPsi (col 14)={trajectory_array[0,14]:.3f} rad/s")
 
     elif trajectory_array is not None and trajectory_array.shape[0] == 0:
         print("Generated trajectory is empty, not saving.")

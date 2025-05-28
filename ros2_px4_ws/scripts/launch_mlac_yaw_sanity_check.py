@@ -101,30 +101,9 @@ if __name__ == "__main__":
         help="A brief description of the mission/test being recorded."
     )
 
-    parser.add_argument(
-        "--trajectory_file",
-        type=str,
-        # default="setpoint_hold_x1.0_y1.0_z4.0_t20.0s_50hz_8col.npy", # Default to your new setpoint trajectory
-        # default = "N200_T30.0_spline_8col.npy",
-        # default = "circle_r2.0_t20.0s_alt2.0_initpsi0deg_50hz_11col.npy",
-        # default = "setpoint_rot_yaw_x0.0_y0.0_z2.0_t20.0s_initpsi0deg_rate15dps_50hz_8col.npy", 
-        default = "circle_trajectory_8col_50hz.npy",
-        help="Name of the .npy trajectory file in 'mlac_sim/traj_data/' folder to be used by mlac_mission_node."
-
-    )
-
-    parser.add_argument(
-        "--trajectory_index",
-        type=int,
-        # default="setpoint_hold_x1.0_y1.0_z4.0_t20.0s_50hz_8col.npy", # Default to your new setpoint trajectory
-        default = 0,
-        help="index of the trajectory in the .npy file (if multiple) to be used by mlac_mission_node."
-    )
-
     args = parser.parse_args()
     mission_desc_from_arg = args.mission_description
-    trajectory_file_name = args.trajectory_file
-    trajectory_index = args.trajectory_index
+    
 
     session = "mlac_sim_main" # Changed session name slightly
     
@@ -159,11 +138,7 @@ if __name__ == "__main__":
         f"echo 'Exporting PYTHONPATH with venv site-packages...' && "
         f"export PYTHONPATH=\"{venv_path}/lib/python3.10/site-packages${{PYTHONPATH:+:$PYTHONPATH}}\" && "
         f"echo 'Running mlac_mission_node...' && "
-        f"ros2 run mlac_sim mlac_mission_node --ros-args \
-            -p debug_rotating_yaw_active:=True \
-            -p debug_initial_yaw_deg:=0.0 \
-            -p debug_yaw_rate_dps:=30.0 \
-            -p debug_duration_sec:=10.0 ; "
+        f"ros2 run mlac_sim yaw_sanity_check; "
         f"echo 'mlac_mission_node pane exited.'; exec bash"
     )
 
@@ -200,11 +175,6 @@ if __name__ == "__main__":
         "/mavros/local_position/velocity_body", # Or velocity_local_ned if preferred
         "/mavros/attitude", # Actual vehicle attitude from PX4
         "/mavros/setpoint_raw/attitude", # What mlac_node sends to MAVROS
-        f"/mlac_mission_node/control_log", # Custom log from your mlac_node
-        f"/mlac_mission_node/trajectory_complete_status", # FSM status
-        "/mission_control/command", # Commands sent to the FSM
-        # "/tf",
-        # "/tf_static"
     ]
     rosbag_command = (
         f"sleep 30; " # Ensure other nodes are up
@@ -226,7 +196,7 @@ if __name__ == "__main__":
         mlac_node_command,
         
         # Pane 3: Set MAVLink Stream Rates
-        # set_stream_rates_command,
+        set_stream_rates_command,
 
         # Pane 4: Record ROS Bag Data
         rosbag_command,

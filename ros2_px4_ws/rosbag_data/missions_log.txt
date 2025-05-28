@@ -17,3 +17,27 @@
 [2025-05-26 14:31:35] Mission: "test_PD_yaw_rot" | Bag Directory: rosbag_0526_143135
 [2025-05-26 14:33:30] Mission: "test_PD_yaw_rot" | Bag Directory: rosbag_0526_143330
 [2025-05-26 14:35:48] Mission: "test_PD_yaw_rot_Kp2_Kd5" | Bag Directory: rosbag_0526_143548
+[2025-05-27 18:54:37] Mission: "sim_test_circle_with_a_des_yawd" | Bag Directory: rosbag_0527_185437
+[2025-05-27 18:57:27] Mission: "sim_test_circle_with_a_des_yawd(correct sim params)
+
+
+" | Bag Directory: rosbag_0527_185727
+[2025-05-27 19:06:14] Mission: "sim_test_circle_with_a_des_yawd(correct sim params and integral terms)" | Bag Directory: rosbag_0527_190614
+[2025-05-27 23:52:28] Mission: "sim_test_circle_with_a_des_yawd(correct sim params and integral terms)" | Bag Directory: rosbag_0527_235228
+[2025-05-28 11:28:51] Mission: "yaw_sanity_check_test" | Bag Directory: rosbag_0528_112851
+[2025-05-28 12:07:31] Mission: "yaw_sanity_check_test" | Bag Directory: rosbag_0528_120731
+[2025-05-28 12:09:14] Mission: "yaw_sanity_check_test" | Bag Directory: rosbag_0528_120914
+[2025-05-28 12:12:15] Mission: "yaw_sanity_check_test" | Bag Directory: rosbag_0528_121215
+[2025-05-28 12:13:27] Mission: "yaw_sanity_check_test" | Bag Directory: rosbag_0528_121327
+[2025-05-28 12:16:57] Mission: "yaw_sanity_check_test" | Bag Directory: rosbag_0528_121657
+[2025-05-28 12:30:09] Mission: "circle_without_body_rates_test" | Bag Directory: rosbag_0528_123009
+[2025-05-28 12:46:57] Mission: "test_yaw_rotate_mission" | Bag Directory: rosbag_0528_124657
+[2025-05-28 12:48:18] Mission: "test_yaw_rotate_mission" | Bag Directory: rosbag_0528_124818
+[2025-05-28 12:55:44] Mission: "test_yaw_rotate_mission" | Bag Directory: rosbag_0528_125544
+[2025-05-28 13:11:08] Mission: "test_yaw_rotate_mission_30dps" | Bag Directory: rosbag_0528_131108
+[2025-05-28 13:13:51] Mission: "test_yaw_rotate_mission_30dps" | Bag Directory: rosbag_0528_131351
+[2025-05-28 13:34:46] Mission: "test_yaw_rotate_mission_newfsm" | Bag Directory: rosbag_0528_133446
+[2025-05-28 13:37:31] Mission: "test_yaw_rotate_mission_newfsm_10s" | Bag Directory: rosbag_0528_133731
+[2025-05-28 13:45:09] Mission: "test_yaw_rotate_mission_newfsm_10s" | Bag Directory: rosbag_0528_134509
+[2025-05-28 13:47:12] Mission: "test_yaw_rotate_mission_newfsm_12s" | Bag Directory: rosbag_0528_134712
+[2025-05-28 16:11:47] Mission: "test_yaw_rotate_mission_newfsm_10s" | Bag Directory: rosbag_0528_161147

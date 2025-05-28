@@ -186,99 +186,111 @@ class OuterLoop:
         return dA, y
 
     def get_force(self, dt, state, goal, f_hat):
+        # Assuming state.t is available for logging, if not, pass 't' as an argument
+        current_time_for_log = state.t 
+        logger_fn = self.get_logger().debug
+
         a_fb_calculated = np.zeros(3) 
+        e = goal.p - state.p # Calculate errors for logging, even if not used for F_W in debug
+        edot = goal.v - state.v
 
-        # Use goal.a directly, which is already zeros if not specified by trajectory
-        goal_a_for_calc = goal.a 
-
-        if self.controller == 'coml':
+        if goal.force_zero_feedback_contribution:
+            logger_fn(f"DEBUG MODE (get_force @ t={current_time_for_log:.3f}): Forcing zero feedback. Goal p={goal.p}, psi={goal.psi:.2f}, dpsi={goal.dpsi}")
+            # For pure attitude command, desired world acceleration is only to counteract gravity
+            # F_W = m * (a_des - g_world)
+            # If a_des (from goal.a + a_fb) should be 0 for pure hover, then F_W = m * (-g_world)
+            thrust_factor = 1.00
+            F_W = -self.params_.mass * self.GRAVITY * thrust_factor
+            
+            # Log that feedback contributions are zeroed for this cycle
+            self.log_.p_err = e # Log actual error
+            self.log_.v_err = edot # Log actual error
+            self.log_.p_err_int = np.array([self.Ix_.value(), self.Iy_.value(), self.Iz_.value()]) # Log current integral, though not used for F_W
+            self.log_.a_fb = np.zeros(3) # Feedback acceleration is forced to zero
+            if 'coml' in self.controller:
+                self.log_.f_hat = np.zeros(3) # Effective f_hat is zero for this F_W calc
+        
+        elif self.controller == 'coml':
+            # ... (your existing COML F_W calculation) ...
+            # Make sure to use goal.a (which will be zero for this debug mode)
             current_Lambda = self.Λ 
             current_K_feedback = self.K    
-
-            e, edot = state.p - goal.p, state.v - goal.v
             s = edot + current_Lambda@e
-            v_ref_terms, dv_ref_terms = goal.v - current_Lambda@e, goal_a_for_calc - current_Lambda@edot
-
+            v_ref_terms, dv_ref_terms = goal.v - current_Lambda@e, goal.a - current_Lambda@edot # Use goal.a
             H, C, g_dyn, B = prior(state.p, state.v) 
             τ = H@dv_ref_terms + C@v_ref_terms + g_dyn - f_hat - current_K_feedback@s
             F_W = np.linalg.solve(B, τ)
+            # For logging a_fb_calculated if needed:
             try:
                 H_inv = np.linalg.inv(H)
-                a_fb_calculated = H_inv @ (-current_K_feedback @ s - f_hat)
+                a_fb_calculated_coml = H_inv @ (-current_K_feedback @ s - f_hat) # This is part of the τ that leads to F_W
+                self.log_.a_fb = a_fb_calculated_coml
             except np.linalg.LinAlgError:
-                a_fb_calculated = np.zeros(3)
+                self.log_.a_fb = np.zeros(3)
+            self.log_.f_hat = f_hat
+
 
         elif self.controller  == 'coml_debug':
+            # ... (your existing COML_DEBUG F_W calculation, ensure it uses goal.a) ...
             Kp_diag = np.diag(self.params_.Kp)
             Kv_diag = np.diag(self.params_.Kd) 
             current_K_feedback = Kv_diag
             current_Lambda = Kp_diag @ np.linalg.inv(current_K_feedback) if np.linalg.det(current_K_feedback) !=0 else np.eye(state.p.size)
-
-            e, edot = state.p - goal.p, state.v - goal.v
             s = edot + current_Lambda@e
-            v_ref_terms, dv_ref_terms = goal.v - current_Lambda@e, goal_a_for_calc - current_Lambda@edot
-
+            v_ref_terms, dv_ref_terms = goal.v - current_Lambda@e, goal.a - current_Lambda@edot
             H, C, g_dyn, B = prior(state.p, state.v)
             τ = H@dv_ref_terms + C@v_ref_terms + g_dyn - current_K_feedback@s 
             F_W = np.linalg.solve(B, τ)
             try:
                 H_inv = np.linalg.inv(H)
-                a_fb_calculated = H_inv @ (-current_K_feedback @ s)
+                a_fb_calculated_coml_debug = H_inv @ (-current_K_feedback @ s)
+                self.log_.a_fb = a_fb_calculated_coml_debug
             except np.linalg.LinAlgError:
-                a_fb_calculated = np.zeros(3)
-        else: # PID controller
-            e = goal.p - state.p
-            edot = goal.v - state.v
+                self.log_.a_fb = np.zeros(3)
 
-            e = np.minimum(np.maximum(e, -self.params_.maxPosErr), self.params_.maxPosErr)
-            edot = np.minimum(np.maximum(edot, -self.params_.maxVelErr), self.params_.maxVelErr)
+        else: # PID controller
+            # ... (your existing PID logic to calculate a_fb_calculated) ...
+            # e = goal.p - state.p # Already calculated above
+            # edot = goal.v - state.v
+            e_clamped = np.minimum(np.maximum(e, -self.params_.maxPosErr), self.params_.maxPosErr)
+            edot_clamped = np.minimum(np.maximum(edot, -self.params_.maxVelErr), self.params_.maxVelErr)
 
             if goal.mode_xy != self.mode_xy_last_:
-                self.Ix_.reset()
-                self.Iy_.reset()
+                self.Ix_.reset(); self.Iy_.reset()
                 self.mode_xy_last_ = goal.mode_xy
-
             if goal.mode_z != self.mode_z_last_:
                 self.Iz_.reset()
                 self.mode_z_last_ = goal.mode_z
 
             if goal.mode_xy == GoalClass.Mode.POS_CTRL:
-                self.Ix_.increment(e[0], dt)
-                self.Iy_.increment(e[1], dt)
-            elif goal.mode_xy == GoalClass.Mode.VEL_CTRL:
-                e[0] = e[1] = 0.0 
-            elif goal.mode_xy == GoalClass.Mode.ACC_CTRL:
-                e[0] = e[1] = 0.0
-                edot[0] = edot[1] = 0.0
-
-            if goal.mode_z == GoalClass.Mode.POS_CTRL:
-                self.Iz_.increment(e[2], dt)
-            elif goal.mode_z == GoalClass.Mode.VEL_CTRL:
-                e[2] = 0.0
-            elif goal.mode_z == GoalClass.Mode.ACC_CTRL:
-                e[2] = 0.0
-                edot[2] = 0.0
+                self.Ix_.increment(e_clamped[0], dt); self.Iy_.increment(e_clamped[1], dt)
+            # ... (rest of PID integral logic as before) ...
+            elif goal.mode_xy == GoalClass.Mode.VEL_CTRL: e_clamped[0] = e_clamped[1] = 0.0 
+            elif goal.mode_xy == GoalClass.Mode.ACC_CTRL: e_clamped[0] = e_clamped[1] = 0.0; edot_clamped[0] = edot_clamped[1] = 0.0
+            if goal.mode_z == GoalClass.Mode.POS_CTRL: self.Iz_.increment(e_clamped[2], dt)
+            elif goal.mode_z == GoalClass.Mode.VEL_CTRL: e_clamped[2] = 0.0
+            elif goal.mode_z == GoalClass.Mode.ACC_CTRL: e_clamped[2] = 0.0; edot_clamped[2] = 0.0
 
             eint = np.array([self.Ix_.value(), self.Iy_.value(), self.Iz_.value()])
-            Kp_arr = np.array(self.params_.Kp)
-            Ki_arr = np.array(self.params_.Ki)
-            Kd_arr = np.array(self.params_.Kd)
-            a_fb_calculated = Kp_arr * e + Ki_arr * eint + Kd_arr * edot
-            
-            F_W = self.params_.mass * (goal_a_for_calc + a_fb_calculated - self.GRAVITY)
+            a_fb_calculated = self.params_.Kp * e_clamped + self.params_.Ki * eint + self.params_.Kd * edot_clamped
+            F_W = self.params_.mass * (goal.a + a_fb_calculated - self.GRAVITY) # Use goal.a
+            self.log_.p_err_int = eint # Log PID integral term
+            self.log_.a_fb = a_fb_calculated
 
+        # Common logging after F_W is determined for all cases
         self.log_.p = state.p
         self.log_.p_ref = goal.p
-        self.log_.p_err = e 
-        if self.controller != 'coml' and self.controller != 'coml_debug': 
-             self.log_.p_err_int = eint
+        self.log_.p_err = e # This is actual error, not necessarily what drove F_W if in debug mode
         self.log_.v = state.v
         self.log_.v_ref = goal.v
-        self.log_.v_err = edot 
-        self.log_.a_ff = goal_a_for_calc # Log the acceleration used (could be zeros)
-        self.log_.a_fb = a_fb_calculated 
+        self.log_.v_err = edot # Actual error
+        self.log_.a_ff = goal.a 
+        # self.log_.a_fb is set within each controller block or by debug block
         self.log_.F_W = F_W
+        
+        logger_fn(f"get_force FINAL @ t={current_time_for_log:.3f}: F_W_cmd={F_W}, P_err_x={e[0]:.3f}, V_err_x={edot[0]:.3f}, A_fb_x={self.log_.a_fb[0]:.3f}")
         return F_W
+
 
     def get_attitude(self, state, goal, F_W):
         norm_F_W = np.linalg.norm(F_W)

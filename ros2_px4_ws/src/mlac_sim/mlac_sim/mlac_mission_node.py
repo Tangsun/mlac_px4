@@ -22,6 +22,8 @@ from .helpers import (quaternion_array_to_msg, vector_array_to_msg,
 from .utils import quaternion_to_rotation_matrix
 from .mlac_fsm import MissionFiniteStateMachine, MissionPhase # Import FSM
 
+import math
+
 class MlacMissionNode(Node):
     def __init__(self):
         super().__init__('mlac_mission_node')
@@ -32,24 +34,40 @@ class MlacMissionNode(Node):
         self.declare_parameter('control_loop_rate_hz', 50.0, ParameterDescriptor(description="Rate of the main control loop"))
         self.declare_parameter('trajectory_file_name', 'circle_trajectory_8col_50hz.npy', ParameterDescriptor(description="Name of the .npy trajectory file in 'mlac_sim/traj_data/' folder"))
         self.declare_parameter('trajectory_index', 0, ParameterDescriptor(description="Index of the trajectory to use if the .npy file contains multiple trajectories. Default is 0."))
-        self.declare_parameter('vehicle_mass', 4.562, ParameterDescriptor(description="Vehicle mass (kg)"))
-        # self.declare_parameter('vehicle_mass', 2.0, ParameterDescriptor(description="Vehicle mass (kg)"))
+        # self.declare_parameter('vehicle_mass', 4.562, ParameterDescriptor(description="Vehicle mass (kg)"))
+        self.declare_parameter('vehicle_mass', 2.0, ParameterDescriptor(description="Vehicle mass (kg)"))
         self.declare_parameter('Kp', [2.0, 2.0, 2.0], ParameterDescriptor(description="Proportional gains [Px, Py, Pz]"))
-        self.declare_parameter('Ki', [0.0, 0.0, 0.0], ParameterDescriptor(description="Integral gains [Ix, Iy, Iz]"))
-        self.declare_parameter('Kd', [7.0, 7.0, 7.0], ParameterDescriptor(description="Derivative gains [Dx, Dy, Dz]"))
+        self.declare_parameter('Ki', [1.0, 1.0, 1.0], ParameterDescriptor(description="Integral gains [Ix, Iy, Iz]"))
+        self.declare_parameter('Kd', [5.0, 5.0, 5.0], ParameterDescriptor(description="Derivative gains [Dx, Dy, Dz]"))
         self.declare_parameter('max_pos_err', [0.5, 0.5, 0.5], ParameterDescriptor(description="Max position error for PID saturation [err_x, err_y, err_z]"))
         self.declare_parameter('max_vel_err', [1.0, 1.0, 1.0], ParameterDescriptor(description="Max velocity error for PID saturation [verr_x, verr_y, verr_z]"))
-        self.declare_parameter('max_thrust_N', 4.562 * 9.8 / 0.728, ParameterDescriptor(description="Max thrust capability (N)"))
-        # self.declare_parameter('max_thrust_N', 2.0 * 9.8 / 0.728, ParameterDescriptor(description="Max thrust capability (N)"))
+        # self.declare_parameter('max_thrust_N', 4.562 * 9.8 / 0.728, ParameterDescriptor(description="Max thrust capability (N)"))
+        self.declare_parameter('max_thrust_N', 2.0 * 9.81 / 0.728, ParameterDescriptor(description="Max thrust capability (N)"))
+
+        # ++ NEW DEBUG PARAMETERS ++
+        self.declare_parameter('debug_rotating_yaw_active', False, ParameterDescriptor(description="Activate debug mode: hover with rotating yaw, zero feedback."))
+        self.declare_parameter('debug_yaw_initial_deg', 0.0, ParameterDescriptor(description="Initial yaw for debug mode (degrees)."))
+        self.declare_parameter('debug_yaw_rate_dps', 15.0, ParameterDescriptor(description="Yaw rate for debug mode (degrees/sec)."))
+        self.declare_parameter('debug_duration_sec', 20.0, ParameterDescriptor(description="Duration for the debug rotating yaw phase (seconds)."))
+        self.declare_parameter('debug_hover_position', [0.0, 0.0, 2.0], ParameterDescriptor(description="Hover position for debug mode [x,y,z] (m). Uses initial_hover_position by default if not overridden."))
+        # ++ END NEW DEBUG PARAMETERS ++
 
         # New Mission Logic Parameters for FSM
         self.declare_parameter('initial_hover_position', [0.0, 0.0, 2.0], ParameterDescriptor(description="Initial hover position [x, y, z] (m)"))
         self.declare_parameter('final_hover_position', [0.0, 0.0, 2.0], ParameterDescriptor(description="Final hover position [x, y, z] (m)"))
         self.declare_parameter('landing_position', [0.0, 0.0, 0.05], ParameterDescriptor(description="Landing target position [x, y, z] (m), z is target altitude before disarm"))
         self.declare_parameter('position_reached_threshold', 0.2, ParameterDescriptor(description="Threshold to consider a position reached (m)"))
-        self.declare_parameter('hover_duration_sec', 5.0, ParameterDescriptor(description="Duration to hover at initial/final points (s)"))
+        self.declare_parameter('hover_duration_sec', 3.0, ParameterDescriptor(description="Duration to hover at initial/final points (s)"))
         self.declare_parameter('landing_descent_rate_mps', 0.3, ParameterDescriptor(description="Descent rate for landing (m/s positive value)"))
         self.declare_parameter('wait_for_offboard_arm_timeout_sec', 30.0, ParameterDescriptor(description="Timeout (seconds) to wait for OFFBOARD and ARM after START command"))
+
+        # ++ GET NEW DEBUG PARAMETERS ++
+        self.debug_mode_active_param = self.get_parameter('debug_rotating_yaw_active').get_parameter_value().bool_value
+        self.debug_initial_yaw_deg_param = self.get_parameter('debug_yaw_initial_deg').get_parameter_value().double_value
+        self.debug_yaw_rate_dps_param = self.get_parameter('debug_yaw_rate_dps').get_parameter_value().double_value
+        self.debug_duration_sec_param = self.get_parameter('debug_duration_sec').get_parameter_value().double_value
+        self.debug_hover_pos_param_list = self.get_parameter('debug_hover_position').get_parameter_value().double_array_value
+        # ++ END GET NEW DEBUG PARAMETERS ++
 
 
         # --- Get Parameters ---
@@ -92,12 +110,34 @@ class MlacMissionNode(Node):
 
         self.mission_fsm = MissionFiniteStateMachine(
             logger=self.get_logger(), clock=self.get_clock(),
-            initial_hover_pos=initial_hover_pos, final_hover_pos=final_hover_pos, landing_pos=landing_pos,
-            pos_reached_thresh=pos_reached_thresh, hover_duration_sec=hover_duration_sec,
-            landing_descent_rate_mps=landing_descent_rate_mps,
-            wait_for_offboard_arm_timeout_sec=wait_timeout
+            initial_hover_pos=initial_hover_pos, 
+            # ... (pass other existing params to FSM) ...
+            final_hover_pos = self.get_parameter('final_hover_position').get_parameter_value().double_array_value,
+            landing_pos = self.get_parameter('landing_position').get_parameter_value().double_array_value,
+            pos_reached_thresh = self.get_parameter('position_reached_threshold').get_parameter_value().double_value,
+            hover_duration_sec = self.get_parameter('hover_duration_sec').get_parameter_value().double_value,
+            landing_descent_rate_mps = self.get_parameter('landing_descent_rate_mps').get_parameter_value().double_value,
+            wait_for_offboard_arm_timeout_sec = self.get_parameter('wait_for_offboard_arm_timeout_sec').get_parameter_value().double_value
         )
         self.mission_fsm.set_trajectory_data(self.loaded_trajectory_data)
+
+        # ++ CONFIGURE FSM FOR DEBUG MODE ++
+        debug_hover_position_to_use = self.debug_hover_pos_param_list
+        # If debug_hover_position parameter is default [0,0,2] AND initial_hover_position is different,
+        # it might be better to use initial_hover_position for the debug hover spot.
+        # Or, make it explicit: if debug_hover_position is not set by user (e.g. all zeros and initial_hover_pos is not), use initial.
+        # For now, we'll use what's passed or defaulted by the debug_hover_position param.
+        
+        self.mission_fsm.configure_debug_rotating_yaw(
+            active=self.debug_mode_active_param,
+            initial_yaw_rad=math.radians(self.debug_initial_yaw_deg_param),
+            yaw_rate_rps=math.radians(self.debug_yaw_rate_dps_param),
+            duration_sec=self.debug_duration_sec_param,
+            hover_pos=np.array(debug_hover_position_to_use) # Use the (potentially user-overridden) debug hover position
+        )
+        if self.debug_mode_active_param:
+            self.get_logger().warn("DEBUG ROTATING YAW MODE IS ACTIVE in MlacMissionNode.")
+        # ++ END CONFIGURE FSM ++
 
 
         # --- Initialize OuterLoop Controller ---
@@ -109,13 +149,25 @@ class MlacMissionNode(Node):
              default_initial_goal.p = np.array(initial_hover_pos) if initial_hover_pos else np.zeros(3)
 
 
+        # Make sure OuterLoop gets initialized after controller_params
+        default_initial_goal = GoalClass()
+        # Set its position to the debug hover position if debug mode is active, else initial hover
+        if self.debug_mode_active_param:
+            default_initial_goal.p = np.array(self.debug_hover_pos_param_list)
+        else:
+            default_initial_goal.p = np.array(initial_hover_pos) if initial_hover_pos else np.zeros(3)
+        
         self.outer_loop_ctrl = OuterLoop(
             params=self.controller_params,
-            state0=self.current_vehicle_state_py, # Will be updated quickly
-            goal0=default_initial_goal,
+            state0=self.current_vehicle_state_py, 
+            goal0=default_initial_goal, # FSM will quickly override
             controller=self.controller_type,
             package_name='mlac_sim'
         )
+        # Assign logger to outer_loop_ctrl if it's not a Node
+        if not isinstance(self.outer_loop_ctrl, Node):
+            self.outer_loop_ctrl.get_logger = self.get_logger # Allow it to use node's logger
+
 
         # QoS Profiles
         qos_sensor_data = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, durability=DurabilityPolicy.VOLATILE, history=HistoryPolicy.KEEP_LAST, depth=1)
@@ -210,71 +262,78 @@ class MlacMissionNode(Node):
         self.mission_fsm.process_command(command, self.current_vehicle_state_py)
 
     def control_loop_callback(self):
+        # ... (existing logic to get current_ros_time, check is_vehicle_state_received) ...
         current_ros_time = self.get_clock().now()
         
         if not self.is_vehicle_state_received:
             self.get_logger().debug("Control Loop: No vehicle state yet.", throttle_duration_sec=2.0)
             return
 
-        # --- Update FSM and Get Goal ---
         current_goal_from_fsm, is_traj_phase_completed = self.mission_fsm.update(
             self.current_vehicle_state_py, self.current_mavros_state
         )
-        
-        # Publish trajectory status
-        status_msg = BoolMsg()
-        status_msg.data = is_traj_phase_completed 
+        # ... (existing logic to publish status, handle None goal) ...
+        status_msg = BoolMsg(); status_msg.data = is_traj_phase_completed 
         self.trajectory_status_pub.publish(status_msg)
 
         if current_goal_from_fsm is None or not self.mission_fsm.is_active():
-            # self.get_logger().debug(f"Control Loop: FSM not active or no goal. Phase: {self.mission_fsm.current_phase.name}", throttle_duration_sec=1.0)
-            # Optionally, could send a zero thrust / disarm command or just stop publishing setpoints
-            # For now, if FSM is idle/landed, it provides a "stream current pose" goal.
-            if current_goal_from_fsm is None: # Should not happen if FSM is well-behaved
+            if current_goal_from_fsm is None: 
                 self.get_logger().warn(f"FSM returned None goal in phase {self.mission_fsm.current_phase.name}. Streaming current pose as fallback.")
-                current_goal_from_fsm = self.mission_fsm._create_goal_from_position_array(pos_array=self.current_vehicle_state_py.p)
+                # Create a goal that forces zero feedback for safety if FSM misbehaves
+                current_goal_from_fsm = self.mission_fsm._create_goal_from_position_array(
+                    pos_array=self.current_vehicle_state_py.p, 
+                    force_zero_feedback=True 
+                )
 
 
         # --- Compute and Publish Attitude Command ---
         try:
-            # Ensure controller's internal state (if any) is reset if the goal source/type changes significantly.
-            # The FSM transitions should ideally trigger controller resets if needed (e.g., PID integral reset).
-            # The current OuterLoop.reset() is called by FSM logic implicitly if it changes the goal significantly.
-            # Consider if outer_loop_ctrl.reset() needs to be called more explicitly based on FSM phase changes.
-            # For now, assume FSM gives continuous enough goals or handles resets.
-
-            # On initial call after vehicle state received, ensure controller has good state0
+            # Ensure controller's internal state is reset if FSM indicates (e.g. on new mission start)
+            # The FSM's _transition_to_phase for AWAITING_OFFBOARD_AND_ARM could be a place
+            # for the main node to call outer_loop_ctrl.reset() if needed.
+            # For now, OuterLoop.reset is called if its t_last_ == 0.0, which happens on init or after its own reset call.
             if self.outer_loop_ctrl.t_last_ == 0.0: # Proxy for first run or after reset
                  self.outer_loop_ctrl.reset(self.current_vehicle_state_py, current_goal_from_fsm)
 
-
             att_cmd_py: AttCmdClass = self.outer_loop_ctrl.compute_attitude_command(
-                t=(current_ros_time.nanoseconds / 1e9),
+                t=(current_ros_time.nanoseconds / 1e9), # Pass current time to controller
                 state=self.current_vehicle_state_py,
                 goal=current_goal_from_fsm
             )
         except Exception as e:
             self.get_logger().error(f"Error in outer_loop_ctrl.compute_attitude_command: {e}\n{traceback.format_exc()}")
             return
-
+        
+        # ... (rest of attitude_setpoint_pub and controller_log_pub logic) ...
+        # Ensure this part passes the correct t for logging if 't' was added to compute_attitude_command
         att_msg = AttitudeTarget()
         att_msg.header.stamp = current_ros_time.to_msg()
         att_msg.orientation = quaternion_array_to_msg(att_cmd_py.q)
         att_msg.body_rate = vector_array_to_msg(att_cmd_py.w)
         
-        # Thrust calculation (same as before)
         R_body_to_world_desired = quaternion_to_rotation_matrix(att_cmd_py.q).T
         desired_body_z_axis_in_world = R_body_to_world_desired[:, 2]
         thrust_force_along_desired_z = np.dot(att_cmd_py.F_W, desired_body_z_axis_in_world)
         normalized_thrust = np.clip(thrust_force_along_desired_z / self.max_thrust_N, 0.0, 1.0)
         att_msg.thrust = float(normalized_thrust)
         
-        att_msg.type_mask = ( # Ignore body rates, PX4 will generate them
+        att_msg.type_mask = ( 
             AttitudeTarget.IGNORE_ROLL_RATE |
             AttitudeTarget.IGNORE_PITCH_RATE |
-            AttitudeTarget.IGNORE_YAW_RATE
-        )
+            AttitudeTarget.IGNORE_YAW_RATE 
+        ) # Keep this for now, or adjust based on test results
         self.attitude_setpoint_pub.publish(att_msg)
+
+        log_data_py = self.outer_loop_ctrl.get_log() 
+        log_data_py.p_ref = np.copy(current_goal_from_fsm.p)
+        log_data_py.v_ref = np.copy(current_goal_from_fsm.v)
+        log_data_py.a_ff = np.copy(current_goal_from_fsm.a) if current_goal_from_fsm.a is not None else np.zeros(3)
+        log_data_py.j_ff = np.copy(current_goal_from_fsm.j) if current_goal_from_fsm.j is not None else np.zeros(3)
+        log_data_py.psi_ref = current_goal_from_fsm.psi
+        log_data_py.dpsi_ref = current_goal_from_fsm.dpsi if current_goal_from_fsm.dpsi is not None else 0.0
+        
+        log_msg = controllog_class_to_ros_msg(log_data_py, current_ros_time.to_msg())
+        self.controller_log_pub.publish(log_msg)
 
         # --- Logging ControllerLog ---
         log_data_py = self.outer_loop_ctrl.get_log() # Get latest log from controller

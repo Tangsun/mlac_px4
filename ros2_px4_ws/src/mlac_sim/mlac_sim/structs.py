@@ -1,13 +1,17 @@
+# In tangsun/mlac_px4/mlac_px4-65b5af8de243304ffb69315e826df1ac5a5041a3/ros2_px4_ws/src/mlac_sim/mlac_sim/structs.py
+
 from enum import Enum
 import numpy as np
 
 class AttCmdClass:
+    # ... (no changes here) ...
     def __init__(self):
         self.q = np.array([1.0, 0.0, 0.0, 0.0]) # w, x, y, z
         self.w = np.zeros(3)
         self.F_W = np.zeros(3)
 
 class ParametersClass:
+    # ... (no changes here) ...
     def __init__(self):
         self.mass = 0.0
         self.Kp = np.zeros(3)
@@ -17,6 +21,7 @@ class ParametersClass:
         self.maxVelErr = np.zeros(3)
 
 class StateClass:
+    # ... (no changes here) ...
     def __init__(self):
         self.t = -1.0
         self.p = np.zeros(3)
@@ -36,12 +41,16 @@ class GoalClass:
         self.t = -1.0
         self.p = np.zeros(3)
         self.v = np.zeros(3)
-        self.a = np.zeros(3) # Default to zero if not specified by trajectory
-        self.j = None        # Jerk: None if not specified by trajectory
+        self.a = np.zeros(3) 
+        self.j = None        
         self.psi = 0.0
-        self.dpsi = None     # Yaw rate: None if not specified by trajectory
+        self.dpsi = None     
+        # ++ NEW FLAG ++
+        self.force_zero_feedback_contribution: bool = False 
+        # ++ END NEW FLAG ++
 
 class ControlLogClass:
+    # ... (no changes here) ...
     def __init__(self):
         self.p = np.zeros(3)
         self.p_ref = np.zeros(3)
@@ -71,6 +80,7 @@ class ControlLogClass:
         self.f_hat = np.zeros(3)
 
 class ModeClass(Enum): 
+    # ... (no changes here) ...
     Preflight = 0
     SpinningUp = 1
     Flying = 2
