@@ -74,6 +74,9 @@ class ControlLogClass:
         self.psi_ref = 0.0
         self.dpsi_ref = 0.0
 
+        self.roll_ref = 0.0
+        self.pitch_ref = 0.0
+
         self.P_norm = 0.0
         self.A_norm = 0.0
         self.y_norm = 0.0

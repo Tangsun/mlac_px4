@@ -53,3 +53,10 @@
 [2025-05-29 13:05:08] Mission: "debug_circle_yaw_logging_rpy" | Bag Directory: rosbag_0529_130508
 [2025-05-29 13:37:47] Mission: "debug_attrd_rotating_yaw" | Bag Directory: rosbag_0529_133747
 [2025-05-29 13:39:51] Mission: "debug_attrd_rotating_yaw_10s" | Bag Directory: rosbag_0529_133951
+[2025-05-29 14:09:24] Mission: "debug_circle_yaw_log_rpy" | Bag Directory: rosbag_0529_140924
+[2025-05-29 14:11:20] Mission: "debug_circle_yaw_log_rpy" | Bag Directory: rosbag_0529_141120
+[2025-05-29 15:05:12] Mission: "debug_circle_yaw_log_rpy" | Bag Directory: rosbag_0529_150512
+[2025-05-29 15:13:41] Mission: "debug_turn_60_deg" | Bag Directory: rosbag_0529_151341
+[2025-05-29 15:16:29] Mission: "debug_turn_60_deg" | Bag Directory: rosbag_0529_151629
+[2025-05-29 15:18:25] Mission: "debug_turn_60_deg" | Bag Directory: rosbag_0529_151825
+[2025-05-29 16:13:05] Mission: "test_zeroyaw_spline" | Bag Directory: rosbag_0529_161305

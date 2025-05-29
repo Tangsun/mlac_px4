@@ -13,6 +13,8 @@ geometry_msgs/Vector3 reference_velocity
 geometry_msgs/Vector3 reference_acceleration
 geometry_msgs/Vector3 reference_jerk
 float64 reference_yaw
+float64 reference_roll
+float64 reference_pitch
 float64 reference_yaw_rate
 geometry_msgs/Quaternion reference_orientation_desired # q_ref from controller
 

@@ -99,6 +99,9 @@ def controllog_class_to_ros_msg(log_py: ControlLogClass, stamp) -> ControllerLog
     msg.reference_yaw_rate = float(log_py.dpsi_ref)
     msg.reference_orientation_desired = quaternion_array_to_msg(log_py.q_ref)
 
+    msg.reference_roll = float(log_py.roll_ref)
+    msg.reference_pitch = float(log_py.pitch_ref)
+
     msg.error_position = vector_array_to_msg(log_py.p_err)
     msg.error_velocity = vector_array_to_msg(log_py.v_err)
     msg.error_position_integrated = vector_array_to_msg(log_py.p_err_int)

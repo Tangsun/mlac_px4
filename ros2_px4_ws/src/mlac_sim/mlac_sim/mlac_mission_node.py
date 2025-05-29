@@ -38,7 +38,7 @@ class MlacMissionNode(Node):
         self.declare_parameter('vehicle_mass', 2.0, ParameterDescriptor(description="Vehicle mass (kg)"))
         self.declare_parameter('Kp', [2.0, 2.0, 2.0], ParameterDescriptor(description="Proportional gains [Px, Py, Pz]"))
         self.declare_parameter('Ki', [1.0, 1.0, 1.0], ParameterDescriptor(description="Integral gains [Ix, Iy, Iz]"))
-        self.declare_parameter('Kd', [5.0, 5.0, 5.0], ParameterDescriptor(description="Derivative gains [Dx, Dy, Dz]"))
+        self.declare_parameter('Kd', [4.0, 4.0, 4.0], ParameterDescriptor(description="Derivative gains [Dx, Dy, Dz]"))
         self.declare_parameter('max_pos_err', [0.5, 0.5, 0.5], ParameterDescriptor(description="Max position error for PID saturation [err_x, err_y, err_z]"))
         self.declare_parameter('max_vel_err', [1.0, 1.0, 1.0], ParameterDescriptor(description="Max velocity error for PID saturation [verr_x, verr_y, verr_z]"))
         # self.declare_parameter('max_thrust_N', 4.562 * 9.8 / 0.728, ParameterDescriptor(description="Max thrust capability (N)"))
@@ -304,6 +304,40 @@ class MlacMissionNode(Node):
             self.get_logger().error(f"Error in outer_loop_ctrl.compute_attitude_command: {e}\n{traceback.format_exc()}")
             return
         
+
+        # --- Convert desired quaternion to RPY and Log ---
+        log_data_py = self.outer_loop_ctrl.get_log() # Get latest log structure
+        desired_roll = 0.0
+        desired_pitch = 0.0
+        desired_yaw_from_q = 0.0
+
+        if att_cmd_py.q is not None and len(att_cmd_py.q) == 4:
+            # get_rpy expects numpy array [w, x, y, z] and returns Vector3(x=roll, y=pitch, z=yaw)
+            desired_rpy_msg = get_rpy(att_cmd_py.q) 
+            desired_roll = desired_rpy_msg.x
+            desired_pitch = desired_rpy_msg.y
+            desired_yaw_from_q = desired_rpy_msg.z
+
+            goal_yaw_str = f"{math.degrees(current_goal_from_fsm.psi):.2f}" if current_goal_from_fsm and hasattr(current_goal_from_fsm, 'psi') else "N/A"
+
+            self.get_logger().debug(
+                f"Desired RPY (deg): R={math.degrees(desired_roll):.2f}, P={math.degrees(desired_pitch):.2f}, Y_quat={math.degrees(desired_yaw_from_q):.2f} | " +
+                f"Goal Yaw (deg): {goal_yaw_str} | " +  # Use the pre-formatted string
+                f"Thrust: {att_cmd_py.F_W[2]:.2f} N", 
+                throttle_duration_sec=1.0
+            )
+        else:
+            self.get_logger().warn("att_cmd_py.q is None or not of length 4, cannot compute/log RPY.", throttle_duration_sec=1.0)
+
+        # Populate log_data_py (instance of ControlLogClass from structs.py)
+        log_data_py.roll_ref = desired_roll
+        log_data_py.pitch_ref = desired_pitch
+        log_data_py.psi_ref = current_goal_from_fsm.psi if current_goal_from_fsm else 0.0 # Input target yaw
+        log_data_py.dpsi_ref = current_goal_from_fsm.dpsi if current_goal_from_fsm and current_goal_from_fsm.dpsi is not None else 0.0
+        log_data_py.q_ref = np.copy(att_cmd_py.q) if att_cmd_py.q is not None else np.array([1.0,0,0,0])
+
+
+        # --- Publish Attitude Setpoint ---
         # ... (rest of attitude_setpoint_pub and controller_log_pub logic) ...
         # Ensure this part passes the correct t for logging if 't' was added to compute_attitude_command
         att_msg = AttitudeTarget()
@@ -324,26 +358,11 @@ class MlacMissionNode(Node):
         ) # Keep this for now, or adjust based on test results
         self.attitude_setpoint_pub.publish(att_msg)
 
-        log_data_py = self.outer_loop_ctrl.get_log() 
         log_data_py.p_ref = np.copy(current_goal_from_fsm.p)
         log_data_py.v_ref = np.copy(current_goal_from_fsm.v)
         log_data_py.a_ff = np.copy(current_goal_from_fsm.a) if current_goal_from_fsm.a is not None else np.zeros(3)
         log_data_py.j_ff = np.copy(current_goal_from_fsm.j) if current_goal_from_fsm.j is not None else np.zeros(3)
-        log_data_py.psi_ref = current_goal_from_fsm.psi
-        log_data_py.dpsi_ref = current_goal_from_fsm.dpsi if current_goal_from_fsm.dpsi is not None else 0.0
-        
-        log_msg = controllog_class_to_ros_msg(log_data_py, current_ros_time.to_msg())
-        self.controller_log_pub.publish(log_msg)
-
-        # --- Logging ControllerLog ---
-        log_data_py = self.outer_loop_ctrl.get_log() # Get latest log from controller
-        # Populate reference values from the FSM's goal for logging
-        log_data_py.p_ref = np.copy(current_goal_from_fsm.p)
-        log_data_py.v_ref = np.copy(current_goal_from_fsm.v)
-        log_data_py.a_ff = np.copy(current_goal_from_fsm.a) if current_goal_from_fsm.a is not None else np.zeros(3)
-        log_data_py.j_ff = np.copy(current_goal_from_fsm.j) if current_goal_from_fsm.j is not None else np.zeros(3)
-        log_data_py.psi_ref = current_goal_from_fsm.psi
-        log_data_py.dpsi_ref = current_goal_from_fsm.dpsi if current_goal_from_fsm.dpsi is not None else 0.0
+        # psi_ref, dpsi_ref, roll_ref, pitch_ref, q_ref already populated above
         
         log_msg = controllog_class_to_ros_msg(log_data_py, current_ros_time.to_msg())
         self.controller_log_pub.publish(log_msg)
