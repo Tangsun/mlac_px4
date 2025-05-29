@@ -159,14 +159,14 @@ if __name__ == "__main__":
         f"echo 'Exporting PYTHONPATH with venv site-packages...' && "
         f"export PYTHONPATH=\"{venv_path}/lib/python3.10/site-packages${{PYTHONPATH:+:$PYTHONPATH}}\" && "
         f"echo 'Running mlac_mission_node...' && "
-        # f"ros2 run mlac_sim mlac_mission_node --ros-args \
-        #     -p debug_rotating_yaw_active:=True \
-        #     -p debug_initial_yaw_deg:=0.0 \
-        #     -p debug_yaw_rate_dps:=30.0 \
-        #     -p debug_duration_sec:=12.0 ; "
         f"ros2 run mlac_sim mlac_mission_node --ros-args \
-            -p trajectory_file:={trajectory_file_name} \
-            -p trajectory_index:={trajectory_index} ; "
+            -p debug_rotating_yaw_active:=True \
+            -p debug_initial_yaw_deg:=0.0 \
+            -p debug_yaw_rate_dps:=30.0 \
+            -p debug_duration_sec:=10.0 ; "
+        # f"ros2 run mlac_sim mlac_mission_node --ros-args \
+        #     -p trajectory_file_name:={trajectory_file_name} \
+        #     -p trajectory_index:={trajectory_index} ; "
         f"echo 'mlac_mission_node pane exited.'; exec bash"
     )
 

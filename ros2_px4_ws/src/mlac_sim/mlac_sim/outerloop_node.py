@@ -348,6 +348,9 @@ class OuterLoop:
 
             q_ref = flat_rotation_matrix_to_quaternion(flat_Rd)
 
+        self.log_.q = state.q
+        self.log_.q_ref = q_ref
+
         return q_ref
 
     def get_rates(self, dt, state, goal, F_W, a_fb, q_ref):

@@ -50,3 +50,6 @@
 [2025-05-28 23:55:27] Mission: "test_circle_withyawrate" | Bag Directory: rosbag_0528_235527
 [2025-05-28 23:57:10] Mission: "test_circle_withyawrate" | Bag Directory: rosbag_0528_235710
 [2025-05-28 23:59:10] Mission: "test_circle_withyawrate" | Bag Directory: rosbag_0528_235910; seems like circle has zero yaw rate anyways
+[2025-05-29 13:05:08] Mission: "debug_circle_yaw_logging_rpy" | Bag Directory: rosbag_0529_130508
+[2025-05-29 13:37:47] Mission: "debug_attrd_rotating_yaw" | Bag Directory: rosbag_0529_133747
+[2025-05-29 13:39:51] Mission: "debug_attrd_rotating_yaw_10s" | Bag Directory: rosbag_0529_133951
