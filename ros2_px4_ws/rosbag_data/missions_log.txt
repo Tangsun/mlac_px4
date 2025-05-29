@@ -41,3 +41,12 @@
 [2025-05-28 13:45:09] Mission: "test_yaw_rotate_mission_newfsm_10s" | Bag Directory: rosbag_0528_134509
 [2025-05-28 13:47:12] Mission: "test_yaw_rotate_mission_newfsm_12s" | Bag Directory: rosbag_0528_134712
 [2025-05-28 16:11:47] Mission: "test_yaw_rotate_mission_newfsm_10s" | Bag Directory: rosbag_0528_161147
+[2025-05-28 18:11:33] Mission: "test_yaw_rotate_mission_newfsm_10s" | Bag Directory: rosbag_0528_181133
+[2025-05-28 18:12:24] Mission: "test_yaw_rotate_mission_newfsm_10s" | Bag Directory: rosbag_0528_181224
+[2025-05-28 18:13:36] Mission: "test_yaw_rotate_mission_newfsm_10s" | Bag Directory: rosbag_0528_181336
+[2025-05-28 23:47:31] Mission: "test_yaw_rotate_mission_newfsm_11s" | Bag Directory: rosbag_0528_234731
+[2025-05-28 23:49:49] Mission: "test_yaw_rotate_mission_newattcmd_newfsm_12s" | Bag Directory: rosbag_0528_234949
+[2025-05-28 23:50:43] Mission: "test_yaw_rotate_mission_newattcmd_newfsm_12s" | Bag Directory: rosbag_0528_235043
+[2025-05-28 23:55:27] Mission: "test_circle_withyawrate" | Bag Directory: rosbag_0528_235527
+[2025-05-28 23:57:10] Mission: "test_circle_withyawrate" | Bag Directory: rosbag_0528_235710
+[2025-05-28 23:59:10] Mission: "test_circle_withyawrate" | Bag Directory: rosbag_0528_235910; seems like circle has zero yaw rate anyways

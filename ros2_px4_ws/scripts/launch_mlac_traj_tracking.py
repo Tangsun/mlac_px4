@@ -106,9 +106,9 @@ if __name__ == "__main__":
         type=str,
         # default="setpoint_hold_x1.0_y1.0_z4.0_t20.0s_50hz_8col.npy", # Default to your new setpoint trajectory
         # default = "N200_T30.0_spline_8col.npy",
-        # default = "circle_r2.0_t20.0s_alt2.0_initpsi0deg_50hz_11col.npy",
+        default = "circle_r2.0_t20.0s_alt2.0_initpsi0deg_50hz_11col.npy",
         # default = "setpoint_rot_yaw_x0.0_y0.0_z2.0_t20.0s_initpsi0deg_rate15dps_50hz_8col.npy", 
-        default = "circle_trajectory_8col_50hz.npy",
+        # default = "circle_trajectory_8col_50hz.npy",
         help="Name of the .npy trajectory file in 'mlac_sim/traj_data/' folder to be used by mlac_mission_node."
 
     )
@@ -159,11 +159,14 @@ if __name__ == "__main__":
         f"echo 'Exporting PYTHONPATH with venv site-packages...' && "
         f"export PYTHONPATH=\"{venv_path}/lib/python3.10/site-packages${{PYTHONPATH:+:$PYTHONPATH}}\" && "
         f"echo 'Running mlac_mission_node...' && "
+        # f"ros2 run mlac_sim mlac_mission_node --ros-args \
+        #     -p debug_rotating_yaw_active:=True \
+        #     -p debug_initial_yaw_deg:=0.0 \
+        #     -p debug_yaw_rate_dps:=30.0 \
+        #     -p debug_duration_sec:=12.0 ; "
         f"ros2 run mlac_sim mlac_mission_node --ros-args \
-            -p debug_rotating_yaw_active:=True \
-            -p debug_initial_yaw_deg:=0.0 \
-            -p debug_yaw_rate_dps:=30.0 \
-            -p debug_duration_sec:=10.0 ; "
+            -p trajectory_file:={trajectory_file_name} \
+            -p trajectory_index:={trajectory_index} ; "
         f"echo 'mlac_mission_node pane exited.'; exec bash"
     )
 

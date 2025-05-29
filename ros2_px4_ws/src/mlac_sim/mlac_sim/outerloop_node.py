@@ -10,7 +10,7 @@ from ament_index_python.packages import get_package_share_directory # ROS 2 equi
 from .dynamics import prior
 from .structs import AttCmdClass, ControlLogClass, GoalClass
 from .helpers import quaternion_multiply
-from .utils import params_to_posdef, quaternion_to_rotation_matrix
+from .utils import params_to_posdef, quaternion_to_rotation_matrix, flat_rotation_matrix_to_quaternion
 
 def convert_p_qbar(p):
     return np.sqrt(1/(1 - 1/p) - 1.1)
@@ -292,7 +292,7 @@ class OuterLoop:
         return F_W
 
 
-    def get_attitude(self, state, goal, F_W):
+    def get_attitude_quaternion(self, state, goal, F_W):
         norm_F_W = np.linalg.norm(F_W)
         
         q_ref_calculated = np.array([np.cos(goal.psi / 2.0), 0.0, 0.0, np.sin(goal.psi / 2.0)])
@@ -329,6 +329,26 @@ class OuterLoop:
         self.log_.q = state.q
         self.log_.q_ref = q_ref_final
         return q_ref_final
+    
+    def get_attitude(self, state, goal, F_W):
+        F_W_norm = np.linalg.norm(F_W)
+        if F_W_norm < 1e-8: 
+            # If the force is too small, use a default level attitude
+            q_ref = np.array([np.cos(goal.psi / 2.0), 0.0, 0.0, np.sin(goal.psi / 2.0)])
+        else:
+            b_3d = F_W / F_W_norm  # Normalize the force vector to get the body z-axis
+            b_1d_tilde = np.array([np.cos(goal.psi), np.sin(goal.psi), 0.0])
+            b_2d = np.cross(b_3d, b_1d_tilde)
+            b_2d /= np.linalg.norm(b_2d)
+            b_1d = np.cross(b_2d, b_3d)
+            b_1d /= np.linalg.norm(b_1d)
+
+            R_d = np.column_stack((b_1d, b_2d, b_3d))
+            flat_Rd = R_d.flatten()
+
+            q_ref = flat_rotation_matrix_to_quaternion(flat_Rd)
+
+        return q_ref
 
     def get_rates(self, dt, state, goal, F_W, a_fb, q_ref):
         # Use goal.j if available, otherwise use zeros
