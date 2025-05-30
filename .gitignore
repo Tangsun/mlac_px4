@@ -59,3 +59,9 @@ ros2_px4_ws/archive
 # *.dylib
 # *.dll
 # *.exe
+
+# Ignore Jupyter Notebook checkpoints
+mlac_jax_train/.ipynb_checkpoints/
+# Ignore data files
+mlac_jax_train/train_results/
+mlac_jax_train/data
