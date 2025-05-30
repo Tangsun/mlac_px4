@@ -36,8 +36,8 @@ class MlacMissionNode(Node):
         self.declare_parameter('trajectory_index', 0, ParameterDescriptor(description="Index of the trajectory to use if the .npy file contains multiple trajectories. Default is 0."))
         # self.declare_parameter('vehicle_mass', 4.562, ParameterDescriptor(description="Vehicle mass (kg)"))
         self.declare_parameter('vehicle_mass', 2.0, ParameterDescriptor(description="Vehicle mass (kg)"))
-        self.declare_parameter('Kp', [2.0, 2.0, 2.0], ParameterDescriptor(description="Proportional gains [Px, Py, Pz]"))
-        self.declare_parameter('Ki', [1.0, 1.0, 1.0], ParameterDescriptor(description="Integral gains [Ix, Iy, Iz]"))
+        self.declare_parameter('Kp', [2.0, 2.0, 3.0], ParameterDescriptor(description="Proportional gains [Px, Py, Pz]"))
+        self.declare_parameter('Ki', [1.0, 1.0, 1.5], ParameterDescriptor(description="Integral gains [Ix, Iy, Iz]"))
         self.declare_parameter('Kd', [4.0, 4.0, 4.0], ParameterDescriptor(description="Derivative gains [Dx, Dy, Dz]"))
         self.declare_parameter('max_pos_err', [0.5, 0.5, 0.5], ParameterDescriptor(description="Max position error for PID saturation [err_x, err_y, err_z]"))
         self.declare_parameter('max_vel_err', [1.0, 1.0, 1.0], ParameterDescriptor(description="Max velocity error for PID saturation [verr_x, verr_y, verr_z]"))
@@ -55,9 +55,9 @@ class MlacMissionNode(Node):
         # New Mission Logic Parameters for FSM
         self.declare_parameter('initial_hover_position', [0.0, 0.0, 2.0], ParameterDescriptor(description="Initial hover position [x, y, z] (m)"))
         self.declare_parameter('final_hover_position', [0.0, 0.0, 2.0], ParameterDescriptor(description="Final hover position [x, y, z] (m)"))
-        self.declare_parameter('landing_position', [0.0, 0.0, 0.05], ParameterDescriptor(description="Landing target position [x, y, z] (m), z is target altitude before disarm"))
+        self.declare_parameter('landing_position', [0.0, 0.0, 0.0], ParameterDescriptor(description="Landing target position [x, y, z] (m), z is target altitude before disarm"))
         self.declare_parameter('position_reached_threshold', 0.2, ParameterDescriptor(description="Threshold to consider a position reached (m)"))
-        self.declare_parameter('hover_duration_sec', 3.0, ParameterDescriptor(description="Duration to hover at initial/final points (s)"))
+        self.declare_parameter('hover_duration_sec', 5.0, ParameterDescriptor(description="Duration to hover at initial/final points (s)"))
         self.declare_parameter('landing_descent_rate_mps', 0.3, ParameterDescriptor(description="Descent rate for landing (m/s positive value)"))
         self.declare_parameter('wait_for_offboard_arm_timeout_sec', 30.0, ParameterDescriptor(description="Timeout (seconds) to wait for OFFBOARD and ARM after START command"))
 
@@ -98,6 +98,9 @@ class MlacMissionNode(Node):
         self.current_mavros_state = MavrosState()
 
         self._load_trajectory() # Load trajectory and inform FSM
+
+        self.logged_trajectory_start_time_ros: Time | None = None
+        self.logged_trajectory_end_time_ros: Time | None = None
 
         # --- Initialize FSM ---
         initial_hover_pos = self.get_parameter('initial_hover_position').get_parameter_value().double_array_value
@@ -268,13 +271,30 @@ class MlacMissionNode(Node):
         if not self.is_vehicle_state_received:
             self.get_logger().debug("Control Loop: No vehicle state yet.", throttle_duration_sec=2.0)
             return
-
-        current_goal_from_fsm, is_traj_phase_completed = self.mission_fsm.update(
+        
+        current_goal_from_fsm, is_traj_phase_completed, fsm_start_event_time, fsm_end_event_time = self.mission_fsm.update(
             self.current_vehicle_state_py, self.current_mavros_state
         )
         # ... (existing logic to publish status, handle None goal) ...
         status_msg = BoolMsg(); status_msg.data = is_traj_phase_completed 
         self.trajectory_status_pub.publish(status_msg)
+
+        if fsm_start_event_time is not None: # FSM signaled the start event in this cycle
+            self.logged_trajectory_start_time_ros = fsm_start_event_time
+        if fsm_end_event_time is not None:   # FSM signaled the end event in this cycle
+            self.logged_trajectory_end_time_ros = fsm_end_event_time
+
+        # Reset logged timestamps for a new mission cycle
+        # This happens if the FSM transitions to IDLE (mission stop/abort)
+        # or to AWAITING_OFFBOARD_AND_ARM (preparing for a new start)
+        if self.mission_fsm.current_phase == MissionPhase.IDLE or \
+           (self.mission_fsm.current_phase == MissionPhase.AWAITING_OFFBOARD_AND_ARM and \
+            self.mission_fsm.command_pending_start_time is not None): # Indicates a "START_MISSION" cmd was just processed
+            if self.logged_trajectory_start_time_ros is not None or self.logged_trajectory_end_time_ros is not None:
+                # Only log reset if there was something to reset
+                self.get_logger().debug("Resetting logged trajectory event timestamps for new mission cycle.")
+            self.logged_trajectory_start_time_ros = None
+            self.logged_trajectory_end_time_ros = None
 
         if current_goal_from_fsm is None or not self.mission_fsm.is_active():
             if current_goal_from_fsm is None: 
@@ -364,6 +384,9 @@ class MlacMissionNode(Node):
         log_data_py.j_ff = np.copy(current_goal_from_fsm.j) if current_goal_from_fsm.j is not None else np.zeros(3)
         # psi_ref, dpsi_ref, roll_ref, pitch_ref, q_ref already populated above
         
+        log_data_py.trajectory_execution_start_ros_time = self.logged_trajectory_start_time_ros
+        log_data_py.trajectory_execution_end_ros_time = self.logged_trajectory_end_time_ros
+
         log_msg = controllog_class_to_ros_msg(log_data_py, current_ros_time.to_msg())
         self.controller_log_pub.publish(log_msg)
 

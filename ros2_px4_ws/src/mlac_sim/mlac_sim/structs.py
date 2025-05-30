@@ -82,6 +82,9 @@ class ControlLogClass:
         self.y_norm = 0.0
         self.f_hat = np.zeros(3)
 
+        self.trajectory_execution_start_ros_time = None # Will store rclpy.time.Time object
+        self.trajectory_execution_end_ros_time = None   # Will store rclpy.time.Time object
+
 class ModeClass(Enum): 
     # ... (no changes here) ...
     Preflight = 0

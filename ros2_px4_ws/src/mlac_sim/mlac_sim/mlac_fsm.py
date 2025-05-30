@@ -1,4 +1,3 @@
-# In tangsun/mlac_px4/mlac_px4-65b5af8de243304ffb69315e826df1ac5a5041a3/ros2_px4_ws/src/mlac_sim/mlac_sim/mlac_fsm.py
 import numpy as np
 from enum import Enum, auto
 from rclpy.time import Time, Duration
@@ -48,13 +47,16 @@ class MissionFiniteStateMachine:
         self.trajectory_data: np.ndarray | None = None
         self.trajectory_start_file_time_offset: float = 0.0
         self.trajectory_start_point_goal_py: GoalClass | None = None
-        self.trajectory_execution_start_time_ros: Time | None = None
+        self.trajectory_execution_start_time_ros: Time | None = None # Internal FSM timer for trajectory duration
         self.is_trajectory_loaded_fsm = False
         self.trajectory_completed_in_fsm = False
 
-        self.last_landing_update_time: Time | None = None # Initialize here
+        # Specific event timestamps to be returned to the mission node
+        self.fsm_trajectory_start_event_time: Time | None = None
+        self.fsm_trajectory_end_event_time: Time | None = None
 
-        # Ensure these are created with force_zero_feedback=False by default for normal operation
+        self.last_landing_update_time: Time | None = None 
+
         self.initial_hover_goal_py = self._create_goal_from_position_array(
             self.initial_hover_pos_param, force_zero_feedback=False
         )
@@ -75,7 +77,7 @@ class MissionFiniteStateMachine:
                                          acc_array: np.ndarray = np.zeros(3),
                                          jerk_array: np.ndarray | None = None, 
                                          dpsi: float | None = None,
-                                         force_zero_feedback: bool = False) -> GoalClass: # Default is False
+                                         force_zero_feedback: bool = False) -> GoalClass:
         goal = GoalClass()
         goal.t = self.clock.now().nanoseconds / 1e9 
         goal.p = np.array(pos_array)
@@ -86,7 +88,7 @@ class MissionFiniteStateMachine:
         goal.dpsi = dpsi
         goal.mode_xy = GoalClass.Mode.POS_CTRL
         goal.mode_z = GoalClass.Mode.POS_CTRL
-        goal.force_zero_feedback_contribution = force_zero_feedback # Set the flag
+        goal.force_zero_feedback_contribution = force_zero_feedback
         return goal
 
     def configure_debug_rotating_yaw(self, active: bool, 
@@ -97,16 +99,14 @@ class MissionFiniteStateMachine:
         self.debug_yaw_rate_rps = yaw_rate_rps
         self.debug_duration_sec = duration_sec
         self.debug_hover_position = np.array(hover_pos)
-        # Update initial_hover_goal_py if debug mode is active to use debug params for its psi
         if active:
             self.initial_hover_goal_py = self._create_goal_from_position_array(
-                self.debug_hover_position, # Use debug hover position for initial hover too
+                self.debug_hover_position, 
                 psi=self.debug_initial_yaw_rad,
-                force_zero_feedback=False # PID active for reaching this initial hover
+                force_zero_feedback=False 
             )
             self.logger.info(f"FSM: Debug Rotating Yaw Mode CONFIGURED. Initial Hover/Debug Pos: {self.debug_hover_position}, Initial Yaw: {math.degrees(initial_yaw_rad):.1f}deg, Rate: {math.degrees(yaw_rate_rps):.1f}dps, Duration: {duration_sec}s")
         else:
-            # Revert initial_hover_goal_py to use default parameters if debug mode is turned off
             self.initial_hover_goal_py = self._create_goal_from_position_array(
                 self.initial_hover_pos_param, force_zero_feedback=False
             )
@@ -137,7 +137,7 @@ class MissionFiniteStateMachine:
             self.trajectory_start_point_goal_py = self._create_goal_from_position_array(
                 pos_array=start_pos, psi=start_psi, vel_array=start_vel, 
                 acc_array=start_acc, jerk_array=start_jerk, dpsi=start_dpsi,
-                force_zero_feedback=False # Normal PID for trajectory tracking
+                force_zero_feedback=False 
             )
             self.logger.info(f"FSM: Trajectory data set. Start point: P={start_pos}, V={start_vel}, Psi={start_psi:.2f}")
         else:
@@ -148,10 +148,7 @@ class MissionFiniteStateMachine:
     def _get_trajectory_goal_at_time_fsm(self, target_time_in_trajectory_timeline: float) -> GoalClass | None:
         if not self.is_trajectory_loaded_fsm or self.trajectory_data is None:
             return None
-        # ... (interpolation logic as before) ...
-        # Ensure the created goal has force_zero_feedback=False for normal trajectory following
         goal = GoalClass()
-        # ... (populate p, v, psi, a, j, dpsi from interpolated trajectory_data) ...
         traj_data = self.trajectory_data
         traj_file_times = traj_data[:, 0]
         clipped_target_time = np.clip(target_time_in_trajectory_timeline, traj_file_times[0], traj_file_times[-1])
@@ -168,7 +165,7 @@ class MissionFiniteStateMachine:
         if num_cols >= 15: goal.dpsi = float(np.interp(clipped_target_time, traj_file_times, traj_data[:, 14]))
         goal.mode_xy = GoalClass.Mode.POS_CTRL
         goal.mode_z = GoalClass.Mode.POS_CTRL
-        goal.force_zero_feedback_contribution = False # Normal PID for trajectory
+        goal.force_zero_feedback_contribution = False
         return goal
 
 
@@ -190,46 +187,53 @@ class MissionFiniteStateMachine:
                 self._transition_to_phase(MissionPhase.AWAITING_OFFBOARD_AND_ARM)
                 self.command_pending_start_time = self.clock.now()
                 self.trajectory_completed_in_fsm = False 
+                # Reset event timestamps for new mission
+                self.fsm_trajectory_start_event_time = None
+                self.fsm_trajectory_end_event_time = None
             else:
                 self.logger.warn(f"FSM: Cannot START_MISSION from {self.current_phase.name}")
         elif command == "HOLD_POSITION":
             current_yaw_for_hold = 0.0
-            try: # Attempt to get current yaw for a smoother hold
+            try: 
                 q_for_yaw = current_vehicle_state.q
-                # Simple yaw extraction (assuming standard quaternion to Euler)
+                # Placeholder for more robust RPY conversion if needed
                 # t3 = +2.0 * (q_for_yaw[0] * q_for_yaw[3] + q_for_yaw[1] * q_for_yaw[2])
                 # t4 = +1.0 - 2.0 * (q_for_yaw[2] * q_for_yaw[2] + q_for_yaw[3] * q_for_yaw[3])
                 # current_yaw_for_hold = math.atan2(t3, t4)
-                # Using a more robust helper if available, or keeping it simple
-                # For now, let's assume a simple default or that it's not critical for this flow
-                pass # Keep default 0 or implement more robust get_rpy if needed
             except Exception as e:
                 self.logger.warn(f"FSM: Could not get current RPY for HOLD_POSITION, defaulting psi to 0. Error: {e}")
 
-
             self.hold_position_goal_py = self._create_goal_from_position_array(
                 pos_array=current_vehicle_state.p, psi=current_yaw_for_hold,
-                force_zero_feedback=False # Active PID for HOLD
+                force_zero_feedback=False
             ) 
             self._transition_to_phase(MissionPhase.USER_COMMANDED_HOLD)
         elif command == "STOP_CONTROLLER": 
+            # Reset event timestamps
+            self.fsm_trajectory_start_event_time = None
+            self.fsm_trajectory_end_event_time = None
             self._transition_to_phase(MissionPhase.IDLE)
             self.trajectory_completed_in_fsm = True 
 
-
-    def update(self, current_vehicle_state: StateClass, mavros_state: MavrosState) -> tuple[GoalClass | None, bool]:
+    # Modified return signature
+    def update(self, current_vehicle_state: StateClass, mavros_state: MavrosState) -> tuple[GoalClass | None, bool, Time | None, Time | None]:
         now = self.clock.now()
         current_p_np = current_vehicle_state.p
         active_goal = None 
+        
+        # These will be set if the specific transition happens in THIS update cycle
+        current_cycle_start_event_time: Time | None = None
+        current_cycle_end_event_time: Time | None = None
 
-        # Safety check: if not armed or not in OFFBOARD, go to IDLE (unless already IDLE/LANDED)
         if self.current_phase not in [MissionPhase.IDLE, MissionPhase.LANDED, MissionPhase.AWAITING_OFFBOARD_AND_ARM]:
             if not mavros_state.armed or mavros_state.mode != "OFFBOARD":
                 self.logger.warn(f"FSM: MAVROS not ARMED or not OFFBOARD (Mode: {mavros_state.mode}, Armed: {mavros_state.armed}). Transitioning to IDLE.")
                 self._transition_to_phase(MissionPhase.IDLE)
-                self.trajectory_completed_in_fsm = True # Consider mission failed/aborted
+                # Reset event timestamps on abort/idle
+                self.fsm_trajectory_start_event_time = None
+                self.fsm_trajectory_end_event_time = None
+                self.trajectory_completed_in_fsm = True
 
-        # Phase logic
         if self.current_phase == MissionPhase.IDLE:
             active_goal = self._create_goal_from_position_array(pos_array=current_p_np, force_zero_feedback=True)
 
@@ -237,7 +241,6 @@ class MissionFiniteStateMachine:
             active_goal = self._create_goal_from_position_array(pos_array=current_p_np, force_zero_feedback=True) 
             if mavros_state.armed and mavros_state.mode == "OFFBOARD":
                 self.logger.info("FSM: Armed and in OFFBOARD mode. Starting mission.")
-                # Determine initial hover position based on debug mode
                 if self.debug_mode_active:
                     self.initial_hover_goal_py = self._create_goal_from_position_array(
                         self.debug_hover_position, 
@@ -248,26 +251,28 @@ class MissionFiniteStateMachine:
                 else:
                      self.initial_hover_goal_py = self._create_goal_from_position_array(
                         self.initial_hover_pos_param, 
-                        psi=0.0, # Default initial yaw for normal mission
+                        psi=0.0, 
                         force_zero_feedback=False
                     )
                      self.logger.info(f"FSM: Targeting standard initial hover at {self.initial_hover_pos_param} with yaw 0.0 rad.")
-
                 self._transition_to_phase(MissionPhase.TAKING_OFF_TO_INITIAL_HOVER)
                 self.command_pending_start_time = None
             elif self.command_pending_start_time and (now - self.command_pending_start_time) > self.wait_for_offboard_arm_timeout:
                 self.logger.warn("FSM: Timeout waiting for OFFBOARD and ARM. Returning to IDLE.")
                 self._transition_to_phase(MissionPhase.IDLE)
                 self.command_pending_start_time = None
+                # Reset event timestamps on timeout/idle
+                self.fsm_trajectory_start_event_time = None
+                self.fsm_trajectory_end_event_time = None
                 self.trajectory_completed_in_fsm = True 
 
         elif self.current_phase == MissionPhase.TAKING_OFF_TO_INITIAL_HOVER:
-            active_goal = self.initial_hover_goal_py # This was already set with force_zero_feedback=False
+            active_goal = self.initial_hover_goal_py
             if self._is_at_target_pose(current_p_np, active_goal.p):
                 self._transition_to_phase(MissionPhase.AT_INITIAL_HOVER)
 
         elif self.current_phase == MissionPhase.AT_INITIAL_HOVER:
-            active_goal = self.initial_hover_goal_py # Still force_zero_feedback=False
+            active_goal = self.initial_hover_goal_py
             if self.phase_start_time and (now - self.phase_start_time) >= self.hover_duration:
                 if self.debug_mode_active:
                     self._transition_to_phase(MissionPhase.DEBUG_ROTATING_YAW_HOVER)
@@ -275,7 +280,6 @@ class MissionFiniteStateMachine:
                     self._transition_to_phase(MissionPhase.MOVING_TO_TRAJECTORY_START)
                 else: 
                     self.logger.warn("FSM: No trajectory or debug mode. Proceeding to final hover.")
-                    # Ensure final_hover_goal_py is for normal PID
                     self.final_hover_goal_py = self._create_goal_from_position_array(
                         self.final_hover_pos_param, force_zero_feedback=False
                     )
@@ -285,80 +289,81 @@ class MissionFiniteStateMachine:
             elapsed_debug_time_sec = (now - self.phase_start_time).nanoseconds / 1e9
             current_debug_psi = (self.debug_initial_yaw_rad + self.debug_yaw_rate_rps * elapsed_debug_time_sec)
             current_debug_psi_normalized = (current_debug_psi + math.pi) % (2 * math.pi) - math.pi
-
             active_goal = self._create_goal_from_position_array(
                 pos_array=self.debug_hover_position, 
                 psi=current_debug_psi_normalized,
                 dpsi=self.debug_yaw_rate_rps,
-                force_zero_feedback=True # Key for this debug mode
+                force_zero_feedback=True
             )
             if elapsed_debug_time_sec >= self.debug_duration_sec:
                 self.logger.info("FSM: Debug rotating yaw finished. Proceeding to landing.")
                 self.trajectory_completed_in_fsm = True 
-                # Prepare for normal landing
-                current_yaw_for_landing = active_goal.psi # Land with the final debug yaw
+                current_yaw_for_landing = active_goal.psi 
                 self.current_goal_py = self._create_goal_from_position_array( 
-                     pos_array=np.array([self.landing_pos_param[0], self.landing_pos_param[1], current_p_np[2]]), # Start descent from current XY of landing_pos
+                     pos_array=np.array([self.landing_pos_param[0], self.landing_pos_param[1], current_p_np[2]]), 
                      psi=current_yaw_for_landing,
-                     force_zero_feedback=False # PID for landing
+                     force_zero_feedback=False 
                 )
-                self.last_landing_update_time = now # ++ SET IT HERE ++
+                self.last_landing_update_time = now 
                 self._transition_to_phase(MissionPhase.LANDING) 
 
         elif self.current_phase == MissionPhase.MOVING_TO_TRAJECTORY_START:
             if not self.is_trajectory_loaded_fsm or not self.trajectory_start_point_goal_py:
                 self.logger.error("FSM: In MOVING_TO_TRAJECTORY_START but trajectory not ready. Switching to IDLE.")
                 self._transition_to_phase(MissionPhase.IDLE); self.trajectory_completed_in_fsm = True 
-                return self._create_goal_from_position_array(pos_array=current_p_np, force_zero_feedback=True), True
-
-            # trajectory_start_point_goal_py should have force_zero_feedback=False set during its creation
+                self.fsm_trajectory_start_event_time = None; self.fsm_trajectory_end_event_time = None
+                return self._create_goal_from_position_array(pos_array=current_p_np, force_zero_feedback=True), True, None, None
             active_goal = self.trajectory_start_point_goal_py 
             if self._is_at_target_pose(current_p_np, self.trajectory_start_point_goal_py.p):
                 self._transition_to_phase(MissionPhase.EXECUTING_TRAJECTORY)
-                self.trajectory_execution_start_time_ros = self.clock.now()
+                self.trajectory_execution_start_time_ros = self.clock.now() # FSM internal timer for duration
+                self.fsm_trajectory_start_event_time = self.trajectory_execution_start_time_ros # Event time
+                current_cycle_start_event_time = self.fsm_trajectory_start_event_time # For this cycle's return
+                self.logger.info(f"FSM: --> Started EXECUTING_TRAJECTORY at ROS time: {self.fsm_trajectory_start_event_time.nanoseconds / 1e9:.3f} s")
+
 
         elif self.current_phase == MissionPhase.EXECUTING_TRAJECTORY:
             if not self.is_trajectory_loaded_fsm or self.trajectory_data is None or self.trajectory_execution_start_time_ros is None:
                 self.logger.error("FSM: In EXECUTING_TRAJECTORY but trajectory/start time not ready. Switching to IDLE.")
                 self._transition_to_phase(MissionPhase.IDLE); self.trajectory_completed_in_fsm = True
-                return self._create_goal_from_position_array(pos_array=current_p_np, force_zero_feedback=True), True
+                self.fsm_trajectory_start_event_time = None; self.fsm_trajectory_end_event_time = None
+                return self._create_goal_from_position_array(pos_array=current_p_np, force_zero_feedback=True), True, None, None
             
             elapsed_execution_time_sec = (now - self.trajectory_execution_start_time_ros).nanoseconds / 1e9
             target_time_in_traj_file = self.trajectory_start_file_time_offset + elapsed_execution_time_sec
             
             active_goal = self._get_trajectory_goal_at_time_fsm(target_time_in_traj_file)
-            # _get_trajectory_goal_at_time_fsm now sets force_zero_feedback=False internally
             if active_goal is None: 
                  self.logger.error("FSM: Failed to get trajectory point during execution. Going to IDLE.")
                  self._transition_to_phase(MissionPhase.IDLE); self.trajectory_completed_in_fsm = True
-                 return self._create_goal_from_position_array(pos_array=current_p_np, force_zero_feedback=True), True
+                 self.fsm_trajectory_start_event_time = None; self.fsm_trajectory_end_event_time = None
+                 return self._create_goal_from_position_array(pos_array=current_p_np, force_zero_feedback=True), True, None, None
 
             if target_time_in_traj_file >= self.trajectory_data[-1, 0] - 1e-3: 
-                self.logger.info("FSM: Trajectory execution finished.")
+                self.fsm_trajectory_end_event_time = now # Event time
+                current_cycle_end_event_time = self.fsm_trajectory_end_event_time # For this cycle's return
+                self.logger.info(f"FSM: --> Finished EXECUTING_TRAJECTORY, transitioning to MOVING_TO_FINAL_HOVER at ROS time: {self.fsm_trajectory_end_event_time.nanoseconds / 1e9:.3f} s")
                 self.trajectory_completed_in_fsm = True
-                # Ensure final_hover_goal_py is for normal PID
                 self.final_hover_goal_py = self._create_goal_from_position_array(
                     self.final_hover_pos_param, force_zero_feedback=False
                 )
                 self._transition_to_phase(MissionPhase.MOVING_TO_FINAL_HOVER)
 
         elif self.current_phase == MissionPhase.MOVING_TO_FINAL_HOVER:
-            # final_hover_goal_py should have force_zero_feedback=False
             active_goal = self.final_hover_goal_py 
             if self._is_at_target_pose(current_p_np, self.final_hover_goal_py.p):
                 self._transition_to_phase(MissionPhase.AT_FINAL_HOVER)
 
         elif self.current_phase == MissionPhase.AT_FINAL_HOVER:
-            # final_hover_goal_py should have force_zero_feedback=False
             active_goal = self.final_hover_goal_py 
             if self.phase_start_time and (now - self.phase_start_time) >= self.hover_duration:
                 self._transition_to_phase(MissionPhase.LANDING)
                 self.current_goal_py = self._create_goal_from_position_array( 
                      pos_array=np.array([self.landing_pos_param[0], self.landing_pos_param[1], current_p_np[2]]),
                      psi=self.final_hover_goal_py.psi, 
-                     force_zero_feedback=False # PID for landing
+                     force_zero_feedback=False
                 )
-                self.last_landing_update_time = now # Initialize for descent calculation
+                self.last_landing_update_time = now
 
 
         elif self.current_phase == MissionPhase.LANDING:
@@ -372,13 +377,11 @@ class MissionFiniteStateMachine:
             self.current_goal_py.p[0] = self.landing_pos_param[0]
             self.current_goal_py.p[1] = self.landing_pos_param[1]
             self.current_goal_py.p[2] = target_z_next
-            self.current_goal_py.force_zero_feedback_contribution = False # Ensure PID is active
+            self.current_goal_py.force_zero_feedback_contribution = False
             active_goal = self.current_goal_py
             
-            # Check if landed based on Z position and drone being disarmed or very low Z error
-            # Use a slightly more generous threshold for Z to ensure it actually reaches near target landing altitude
             is_at_landing_xy = self._is_at_target_pose(current_p_np[:2], self.landing_pos_param[:2])
-            is_at_landing_z = abs(current_p_np[2] - self.landing_pos_param[2]) < 0.1 # e.g. 10cm for landing Z
+            is_at_landing_z = abs(current_p_np[2] - self.landing_pos_param[2]) < 0.1
 
             if (is_at_landing_xy and is_at_landing_z) or not mavros_state.armed:
                  log_reason = "position criteria" if (is_at_landing_xy and is_at_landing_z) else "disarmed"
@@ -391,13 +394,17 @@ class MissionFiniteStateMachine:
             self.trajectory_completed_in_fsm = True 
 
         elif self.current_phase == MissionPhase.USER_COMMANDED_HOLD:
-            if self.hold_position_goal_py: # Should have been created with force_zero_feedback=False
+            if self.hold_position_goal_py: 
                 active_goal = self.hold_position_goal_py 
             else: 
-                active_goal = self._create_goal_from_position_array(pos_array=current_p_np, force_zero_feedback=False) # Default to PID if hold_goal somehow not set
+                active_goal = self._create_goal_from_position_array(pos_array=current_p_np, force_zero_feedback=False)
 
         if active_goal is None:
              self.logger.warn(f"FSM: active_goal was None in phase {self.current_phase.name}. Defaulting to current pose with force_zero_feedback=True.")
              active_goal = self._create_goal_from_position_array(pos_array=current_p_np, force_zero_feedback=True)
-
-        return active_goal, self.trajectory_completed_in_fsm
+        
+        # Return current event times for this cycle
+        # Note: self.fsm_trajectory_start_event_time and self.fsm_trajectory_end_event_time
+        # store the *last* time these events occurred in the current mission.
+        # current_cycle_start_event_time and current_cycle_end_event_time are specific to this update cycle.
+        return active_goal, self.trajectory_completed_in_fsm, current_cycle_start_event_time, current_cycle_end_event_time

@@ -46,6 +46,11 @@ desktop.ini
 # Ignore testing whiteboard directories
 */whiteboard
 
+# Ignore data files
+# processed_data/
+raw_traj_data/
+rosbag_windy/
+
 # Optional: Ignore compiled object files/libraries if they appear outside build/install
 # *.o
 # *.so

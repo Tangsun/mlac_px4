@@ -6,6 +6,8 @@ from .structs import GoalClass, ControlLogClass, StateClass
 from mlac_msgs.msg import GoalControl as GoalControlMsg # Not directly used by mlac_mission_node for file-based trajectories
 from mlac_msgs.msg import ControllerLog as ControllerLogMsg
 
+from rclpy.time import Time
+
 # convert from ROS message to array
 def point_msg_to_array(point_msg: Point) -> np.ndarray:
     return np.array([point_msg.x, point_msg.y, point_msg.z])
@@ -117,4 +119,17 @@ def controllog_class_to_ros_msg(log_py: ControlLogClass, stamp) -> ControllerLog
     msg.coml_a_norm = float(log_py.A_norm)
     msg.coml_y_norm = float(log_py.y_norm)
     msg.coml_f_hat = vector_array_to_msg(log_py.f_hat)
+
+    if log_py.trajectory_execution_start_ros_time:
+        msg.trajectory_execution_start_ros_time = log_py.trajectory_execution_start_ros_time.to_msg()
+    else:
+        # Default to a zero time if not set
+        msg.trajectory_execution_start_ros_time = Time(seconds=0, nanoseconds=0).to_msg()
+
+    if log_py.trajectory_execution_end_ros_time:
+        msg.trajectory_execution_end_ros_time = log_py.trajectory_execution_end_ros_time.to_msg()
+    else:
+        # Default to a zero time if not set
+        msg.trajectory_execution_end_ros_time = Time(seconds=0, nanoseconds=0).to_msg()
+
     return msg

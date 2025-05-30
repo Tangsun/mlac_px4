@@ -36,3 +36,7 @@ float64 coml_p_norm
 float64 coml_a_norm
 float64 coml_y_norm
 geometry_msgs/Vector3 coml_f_hat
+
+# Timestamps for FSM trajectory execution phase
+builtin_interfaces/Time trajectory_execution_start_ros_time
+builtin_interfaces/Time trajectory_execution_end_ros_time
