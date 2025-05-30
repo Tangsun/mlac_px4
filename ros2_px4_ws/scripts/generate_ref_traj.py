@@ -53,8 +53,9 @@ def generate_circle_data(T, dt, radius, center_x, center_y, alt, initial_yaw_rad
     trajectory_data[:, 6] = 0.0 
     
     # Yaw (psi) - tangent to path - Col 7
-    calculated_psi = theta_for_pos + np.pi / 2.0
-    trajectory_data[:, 7] = (calculated_psi + np.pi) % (2 * np.pi) - np.pi
+    # calculated_psi = theta_for_pos + np.pi / 2.0
+    # trajectory_data[:, 7] = (calculated_psi + np.pi) % (2 * np.pi) - np.pi
+    trajectory_data[:, 7] = initial_yaw_rad
     
     # Acceleration (ax, ay, az) - Cols 8, 9, 10
     if num_cols_output >= 11:

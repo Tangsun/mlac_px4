@@ -19,7 +19,7 @@ g_acc = 9.81    # gravitational acceleration
 def prior(q, dq, g_acc=g_acc):
     """TODO: docstring."""
     nq = 3
-    m = 1.5 # kg
+    m = 2.0 # kg
     H = m*np.eye(nq)
     C = np.zeros((nq, nq))
     g = m*np.array([0., 0., g_acc])

@@ -35,8 +35,8 @@ class OuterLoop:
 
         if self.controller == 'coml':
             package_share_path = get_package_share_directory(self.package_name)
-            trial_name = 'reg_P_1.0_reg_k_R_0.001_k_R_scale_1_k_R_z_1.26'
-            filename = 'seed=0_M=50_E=1000_pinit=2.00_pfreq=2000_regP=1.0000.pkl'
+            trial_name = 'sim_test'
+            filename = 'test.pkl'
             model_dir = os.path.join(package_share_path, 'models', trial_name)
             model_pkl_loc = os.path.join(model_dir, filename)
             try:

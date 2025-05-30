@@ -1,0 +1,5 @@
+[2025-05-30 17:56:07] Mission: "test_2norm_model" | Bag Directory: windy_bag_0530_175607
+[2025-05-30 18:00:02] Mission: "test_2norm_model" | Bag Directory: windy_bag_0530_180002
+[2025-05-30 18:02:39] Mission: "test_2norm_model" | Bag Directory: windy_bag_0530_180239
+[2025-05-30 18:08:43] Mission: "coml_debug" | Bag Directory: windy_bag_0530_180843
+[2025-05-30 18:16:05] Mission: "coml_debug" | Bag Directory: windy_bag_0530_181605

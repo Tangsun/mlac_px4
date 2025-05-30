@@ -65,3 +65,5 @@ mlac_jax_train/.ipynb_checkpoints/
 # Ignore data files
 mlac_jax_train/train_results/
 mlac_jax_train/data
+
+ros2_px4_ws/src/mlac_sim/models/
