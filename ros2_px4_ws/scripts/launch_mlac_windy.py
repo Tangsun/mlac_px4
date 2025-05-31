@@ -180,7 +180,7 @@ if __name__ == "__main__":
         f"ros2 run mlac_sim mlac_mission_node --ros-args \
             -p trajectory_file_name:='{trajectory_file_name}' \
             -p trajectory_index:={trajectory_index} \
-            -p controller_type:='coml_debug'; "
+            -p controller_type:='coml'; "
         f"echo 'mlac_mission_node pane exited.'; exec bash"
     )
 

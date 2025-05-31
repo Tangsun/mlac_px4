@@ -213,10 +213,18 @@ class OuterLoop:
         elif self.controller == 'coml':
             # ... (your existing COML F_W calculation) ...
             # Make sure to use goal.a (which will be zero for this debug mode)
+            e_c, edot_c = -e, -edot
+
+            # debug gains
+            # current_Lambda = np.eye(3)
+            # current_K_feedback = 2 * np.eye(3)
+
+            # Use the loaded model parameters
             current_Lambda = self.Λ 
             current_K_feedback = self.K    
-            s = edot + current_Lambda@e
-            v_ref_terms, dv_ref_terms = goal.v - current_Lambda@e, goal.a - current_Lambda@edot # Use goal.a
+            
+            s = edot_c + current_Lambda@e_c
+            v_ref_terms, dv_ref_terms = goal.v - current_Lambda@e_c, goal.a - current_Lambda@edot_c # Use goal.a
             H, C, g_dyn, B = prior(state.p, state.v) 
             τ = H@dv_ref_terms + C@v_ref_terms + g_dyn - f_hat - current_K_feedback@s
             F_W = np.linalg.solve(B, τ)

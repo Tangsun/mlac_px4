@@ -6,3 +6,8 @@
 [2025-05-31 13:46:50] Mission: "pd_check_Kp_2_Kd_4" | Bag Directory: windy_bag_0531_134650
 [2025-05-31 14:02:33] Mission: "coml_debug_aligned_gains" | Bag Directory: windy_bag_0531_140233
 [2025-05-31 14:04:02] Mission: "coml_debug_aligned_gains" | Bag Directory: windy_bag_0531_140402
+[2025-05-31 14:08:37] Mission: "test_2norm_model" | Bag Directory: windy_bag_0531_140837
+[2025-05-31 14:09:26] Mission: "test_2norm_model" | Bag Directory: windy_bag_0531_140926
+[2025-05-31 14:11:53] Mission: "test_2norm_model_with_Kp2_Kd4_x4y4wind" | Bag Directory: windy_bag_0531_141153
+[2025-05-31 14:13:43] Mission: "test_2norm_model_with_Kp2_Kd4_x4y4wind_fixobviouserror" | Bag Directory: windy_bag_0531_141343
+[2025-05-31 14:18:13] Mission: "test_2norm_model_trained_gains_x4y4wind" | Bag Directory: windy_bag_0531_141813
