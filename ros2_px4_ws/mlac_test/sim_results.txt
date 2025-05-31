@@ -3,3 +3,6 @@
 [2025-05-30 18:02:39] Mission: "test_2norm_model" | Bag Directory: windy_bag_0530_180239
 [2025-05-30 18:08:43] Mission: "coml_debug" | Bag Directory: windy_bag_0530_180843
 [2025-05-30 18:16:05] Mission: "coml_debug" | Bag Directory: windy_bag_0530_181605
+[2025-05-31 13:46:50] Mission: "pd_check_Kp_2_Kd_4" | Bag Directory: windy_bag_0531_134650
+[2025-05-31 14:02:33] Mission: "coml_debug_aligned_gains" | Bag Directory: windy_bag_0531_140233
+[2025-05-31 14:04:02] Mission: "coml_debug_aligned_gains" | Bag Directory: windy_bag_0531_140402

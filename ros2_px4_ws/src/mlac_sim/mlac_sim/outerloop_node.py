@@ -232,12 +232,15 @@ class OuterLoop:
 
         elif self.controller  == 'coml_debug':
             # ... (your existing COML_DEBUG F_W calculation, ensure it uses goal.a) ...
-            Kp_diag = np.diag(self.params_.Kp)
-            Kv_diag = np.diag(self.params_.Kd) 
-            current_K_feedback = Kv_diag
-            current_Lambda = Kp_diag @ np.linalg.inv(current_K_feedback) if np.linalg.det(current_K_feedback) !=0 else np.eye(state.p.size)
-            s = edot + current_Lambda@e
-            v_ref_terms, dv_ref_terms = goal.v - current_Lambda@e, goal.a - current_Lambda@edot
+            # Note that main script e, edot is defined as goal - actual
+            # Let's use e_c and edot_c for corrected terms
+            e_c, edot_c = -e, -edot
+
+            current_Lambda = np.eye(3)
+            current_K_feedback = 2 * np.eye(3)  # Assuming identity for debug mode, adjust as needed
+            
+            s = edot_c + current_Lambda@e_c
+            v_ref_terms, dv_ref_terms = goal.v - current_Lambda@e_c, goal.a - current_Lambda@edot_c
             H, C, g_dyn, B = prior(state.p, state.v)
             τ = H@dv_ref_terms + C@v_ref_terms + g_dyn - current_K_feedback@s 
             F_W = np.linalg.solve(B, τ)

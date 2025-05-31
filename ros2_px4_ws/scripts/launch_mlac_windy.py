@@ -137,7 +137,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--auto_kill_duration_sec",
         type=int,
-        default=240, 
+        default=120, 
         help="Duration in seconds before automatically killing the TMUX session. Set to 0 to disable auto-kill and attach instead."
     )
 
@@ -158,7 +158,7 @@ if __name__ == "__main__":
     timestamp_for_bag_dir = now.strftime("%m%d_%H%M%S")
     bag_directory_name = f"windy_bag_{timestamp_for_bag_dir}" 
     
-    base_bag_and_log_path = os.path.join(ros2_ws_path, "mlac_sim")
+    base_bag_and_log_path = os.path.join(ros2_ws_path, "mlac_test")
     full_bag_output_path = os.path.join(base_bag_and_log_path, bag_directory_name) 
     info_log_file_path = os.path.join(base_bag_and_log_path, "sim_results.txt") 
 
@@ -179,8 +179,8 @@ if __name__ == "__main__":
         f"echo 'Running mlac_mission_node...' && "
         f"ros2 run mlac_sim mlac_mission_node --ros-args \
             -p trajectory_file_name:='{trajectory_file_name}' \
-            -p trajectory_index:={trajectory_index}; "
-            # -p controller_type:='coml_debug'; "
+            -p trajectory_index:={trajectory_index} \
+            -p controller_type:='coml_debug'; "
         f"echo 'mlac_mission_node pane exited.'; exec bash"
     )
 
