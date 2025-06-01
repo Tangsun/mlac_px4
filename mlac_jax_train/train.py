@@ -34,12 +34,14 @@ parser.add_argument('--p_freq', help='set frequency for p-norm parameter update'
 parser.add_argument('--meta_epochs', help='set number of epochs for meta-training', type=int)
 parser.add_argument('--reg_P', help='set regularization for P matrix', type=float)
 # parser.add_argument('--reg_k_R', help='set regularization for k_R', type=float)
-parser.add_argument('--k_R_xy', help='scale initial k_R for x, y', type=float, default=1)
-parser.add_argument('--k_R_z', help='initial z value for k_R', type=float, default=1.26)
+parser.add_argument('--k_R_xy', help='scale initial k_R for x, y', type=float, default=1.6)
+parser.add_argument('--k_R_z', help='initial z value for k_R', type=float, default=0.4)
 parser.add_argument('--output_dir', help='set output directory', type=str)
 parser.add_argument('--depth', help='number of hidden layers', type=int, default=2)
 parser.add_argument('--hdim', help='number of hidden units per layer', type=int, default=32)
 args = parser.parse_args()
+
+# Now we fix the k_R and k_Omega values according to the alignment tests that we performed under tune_attitude_gains_px4.py
 
 # Set precision
 if args.use_x64:
@@ -462,7 +464,7 @@ if __name__ == "__main__":
             'k_R': jnp.array([args.k_R_xy, args.k_R_xy, args.k_R_z]),
             # 'k_Omega': 0.1*jax.random.normal(subkeys_gains[4],
             #                             (3,))
-            'k_Omega': jnp.array([0.330, 0.330, 0.300]),
+            'k_Omega': jnp.array([0.24, 0.24, 0.24]),
             # 'P': 0.1*jax.random.normal(subkeys_gains[2],
                                     #    ((num_dof*(num_dof + 1)) // 2,)),
         },

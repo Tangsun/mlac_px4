@@ -138,7 +138,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--auto_kill_duration_sec",
         type=int,
-        default=120, 
+        default=90, 
         help="Duration in seconds before automatically killing the TMUX session. Set to 0 to disable auto-kill and attach instead."
     )
 

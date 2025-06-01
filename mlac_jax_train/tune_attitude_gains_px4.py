@@ -358,14 +358,14 @@ def main(args):
     with tqdm(total=total_gain_combinations, desc="Gain Combinations") as pbar_gains:
         for kr_xy_val_np in kR_xy_sweep_values_np:
             for kr_z_val_np in kR_z_sweep_values_np:
-                # k_R_test_np = np.array([kr_xy_val_np, kr_xy_val_np, kr_z_val_np], dtype=np.float64)
+                k_R_test_np = np.array([kr_xy_val_np, kr_xy_val_np, kr_z_val_np], dtype=np.float64)
                 # k_R_test_np = np.array([2.9436266,  2.9684231,  0.41584948], dtype=np.float64)
-                k_R_test_np = np.array([1.5, 1.5, 1.5], dtype=np.float64)
+                # k_R_test_np = np.array([1.5, 1.5, 1.5], dtype=np.float64)
                 k_R_test_jax = jnp.array(k_R_test_np, dtype=jnp.float64)
                 for kom_iso_val_np in kOmega_isotropic_sweep_values_np:
-                    # k_Omega_test_np = np.array([kom_iso_val_np, kom_iso_val_np, kom_iso_val_np], dtype=np.float64)
-                    # k_Omega_test_np = np.array([0.15371324, 0.17776576, 0.12005147], dtype=np.float64)
-                    k_Omega_test_np = np.array([0.1, 0.1, 0.1], dtype=np.float64)
+                    k_Omega_test_np = np.array([kom_iso_val_np, kom_iso_val_np, kom_iso_val_np], dtype=np.float64)
+                    # k_Omega_test_np = np.array([0.15371324, 0.17776576, 0.15], dtype=np.float64)
+                    # k_Omega_test_np = np.array([0.1, 0.1, 0.1], dtype=np.float64)
                     k_Omega_test_jax = jnp.array(k_Omega_test_np, dtype=jnp.float64)
                     gain_iter += 1
                     pbar_gains.set_description(
@@ -606,10 +606,10 @@ if __name__ == '__main__':
                     "using JAX and PX4 log data."
     )
     parser.add_argument('--dataset_path', type=str, default='data/batch_trajectory_dataset.pkl')
-    parser.add_argument('--num_test_traj', type=int, default=5)
-    parser.add_argument('--kR_xy_values', nargs='+', type=float, default=[1.4])
-    parser.add_argument('--kR_z_values', nargs='+', type=float, default=[1.26])
-    parser.add_argument('--kOmega_values', nargs='+', type=float, default=[0.33])
+    parser.add_argument('--num_test_traj', type=int, default=10)
+    parser.add_argument('--kR_xy_values', nargs='+', type=float, default=[1.6])
+    parser.add_argument('--kR_z_values', nargs='+', type=float, default=[0.4])
+    parser.add_argument('--kOmega_values', nargs='+', type=float, default=[0.24])
     parser.add_argument('--omega_error_weight', type=float, default=0.1)
     parser.add_argument('--output_file',
                         type=str,
