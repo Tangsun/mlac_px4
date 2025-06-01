@@ -216,13 +216,14 @@ class OuterLoop:
             e_c, edot_c = -e, -edot
 
             # debug gains
+            # current_Lambda = np.diag([2.5, 1.0, 1.0])
             # current_Lambda = np.eye(3)
             # current_K_feedback = 2 * np.eye(3)
 
             # Use the loaded model parameters
-            current_Lambda = self.Λ 
-            current_K_feedback = self.K    
-            
+            current_Lambda = self.Λ
+            current_K_feedback = self.K
+
             s = edot_c + current_Lambda@e_c
             v_ref_terms, dv_ref_terms = goal.v - current_Lambda@e_c, goal.a - current_Lambda@edot_c # Use goal.a
             H, C, g_dyn, B = prior(state.p, state.v) 
@@ -244,7 +245,7 @@ class OuterLoop:
             # Let's use e_c and edot_c for corrected terms
             e_c, edot_c = -e, -edot
 
-            current_Lambda = np.eye(3)
+            current_Lambda = np.diag([2.5, 1.0, 1.0])  # Debug mode Lambda, adjust as needed
             current_K_feedback = 2 * np.eye(3)  # Assuming identity for debug mode, adjust as needed
             
             s = edot_c + current_Lambda@e_c

@@ -16,6 +16,7 @@ import os
 import argparse
 import json
 import matplotlib.pyplot as plt
+import jax.tree_util as jtu
 
 from jax import config
 config.update("jax_debug_nans", True)
@@ -32,8 +33,8 @@ parser.add_argument('--pnorm_init', help='set initial value for p-norm choices',
 parser.add_argument('--p_freq', help='set frequency for p-norm parameter update', type=float)
 parser.add_argument('--meta_epochs', help='set number of epochs for meta-training', type=int)
 parser.add_argument('--reg_P', help='set regularization for P matrix', type=float)
-parser.add_argument('--reg_k_R', help='set regularization for k_R', type=float)
-parser.add_argument('--k_R_scale', help='scale initial k_R', type=float, default=1)
+# parser.add_argument('--reg_k_R', help='set regularization for k_R', type=float)
+parser.add_argument('--k_R_xy', help='scale initial k_R for x, y', type=float, default=1)
 parser.add_argument('--k_R_z', help='initial z value for k_R', type=float, default=1.26)
 parser.add_argument('--output_dir', help='set output directory', type=str)
 parser.add_argument('--depth', help='number of hidden layers', type=int, default=2)
@@ -103,7 +104,7 @@ hparams = {
         'max_ref':           (4.5, 4.25, 2.0),     #
         'p_freq':            args.p_freq,          # frequency for p-norm update
         'regularizer_P':     args.reg_P,           # coefficient for P regularization
-        'regularizer_k_R':   args.reg_k_R,         # coefficient for k_R regularization
+        'regularizer_k_R':   0.0,         # coefficient for k_R regularization
     },
 }
 
@@ -458,7 +459,7 @@ if __name__ == "__main__":
                                         ((hdim*(hdim + 1)) // 2,)),
             # 'k_R': 1.0*jax.random.normal(subkeys_gains[3],
             #                             (3,)),
-            'k_R': jnp.array([1.4, 1.4, args.k_R_z])*args.k_R_scale,
+            'k_R': jnp.array([args.k_R_xy, args.k_R_xy, args.k_R_z]),
             # 'k_Omega': 0.1*jax.random.normal(subkeys_gains[4],
             #                             (3,))
             'k_Omega': jnp.array([0.330, 0.330, 0.300]),
@@ -604,12 +605,21 @@ if __name__ == "__main__":
     def step_meta(idx, opt_state, pnorm_param, ensemble_params, t_knots, coefs, T, dt, regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P, regularizer_k_R):
         """This function only updates the meta_params in an iteration"""
         meta_params = get_params(opt_state)
-        grads, aux = jax.grad(loss, argnums=0, has_aux=True)(
+        grads_full, aux = jax.grad(loss, argnums=0, has_aux=True)(
             meta_params, pnorm_param, ensemble_params, t_knots, coefs, T, dt,
             regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P, regularizer_k_R
         )
-        opt_state = update_opt(idx, grads, opt_state)
-        return opt_state, aux, grads
+
+        def zero_attitude_gain_grads(path, leaf):
+            # path is a sequence of jtu.PathKeyEntry objects, e.g., (DictKey(key='gains'), DictKey(key='k_R'))
+            if len(path) == 2 and isinstance(path[0], jtu.DictKey) and path[0].key == 'gains':
+                if isinstance(path[1], jtu.DictKey) and (path[1].key == 'k_R' or path[1].key == 'k_Omega'):
+                    return jnp.zeros_like(leaf)
+            return leaf
+
+        final_grads = jtu.tree_map_with_path(zero_attitude_gain_grads, grads_full)
+        opt_state = update_opt(idx, final_grads, opt_state)
+        return opt_state, aux, final_grads
 
     @partial(jax.jit, static_argnums=(6, 7))
     def step_pnorm(idx, meta_params, opt_state, ensemble_params, t_knots, coefs, T, dt, regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P, regularizer_k_R):
