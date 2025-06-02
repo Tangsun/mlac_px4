@@ -42,8 +42,10 @@ parser.add_argument('--k_R_z', help='initial z value for k_R', type=float, defau
 parser.add_argument('--output_dir', help='set output directory', type=str)
 parser.add_argument('--depth', help='number of hidden layers', type=int, default=2)
 parser.add_argument('--hdim', help='number of hidden units per layer', type=int, default=32)
-args = parser.parse_args()
 parser.add_argument('--learning_rate', help='set learning rate for meta-training', type=float, default=1e-2)
+
+args = parser.parse_args()
+
 
 # Now we fix the k_R and k_Omega values according to the alignment tests that we performed under tune_attitude_gains_px4.py
 
