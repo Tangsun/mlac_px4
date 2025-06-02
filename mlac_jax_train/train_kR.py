@@ -43,6 +43,7 @@ parser.add_argument('--output_dir', help='set output directory', type=str)
 parser.add_argument('--depth', help='number of hidden layers', type=int, default=2)
 parser.add_argument('--hdim', help='number of hidden units per layer', type=int, default=32)
 args = parser.parse_args()
+parser.add_argument('--learning_rate', help='set learning rate for meta-training', type=float, default=1e-2)
 
 # Now we fix the k_R and k_Omega values according to the alignment tests that we performed under tune_attitude_gains_px4.py
 
@@ -91,7 +92,7 @@ hparams = {
         'num_hlayers':       args.depth,          # number of hidden layers
         'hdim':              args.hdim,         # number of hidden units per layer
         'train_frac':        0.75,       #
-        'learning_rate':     1e-2,       # step size for gradient optimization
+        'learning_rate':     args.learning_rate,       # step size for gradient optimization
         'num_steps':         args.meta_epochs,        # maximum number of gradient steps
         'regularizer_l2':    1e-4,       # coefficient for L2-regularization
         'regularizer_ctrl':  1e-3,       #
