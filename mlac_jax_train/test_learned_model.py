@@ -310,7 +310,9 @@ def test_new_trajectories(raw_data, N_new, seed, plot_first_traj=True):
 def main():
     parser = argparse.ArgumentParser(description="Test and visualize a trained MLAC model.")
     parser.add_argument('--pkl_file_path', type=str,
-                        default='train_results/test_L_K_kR_reg_pnorm/E=1000_pinit=2.00_pfreq=20_regP=1.0000_regL=0.0200_regK=0.0100_zw=1.80_regkR=0.0001.pkl',
+                        default='train_results/pnorm_var_reg_L_K_pfreq_pnorm_16runs/' \
+                        'run_3_lambda_0.008_k_0.004_pfreq_20_pnorm_2.0/' \
+                        'E=1000_pinit=2.00_pfreq=20_regP=1.0000_regL=0.0080_regK=0.0040_zw=1.50_regkR=0.0001.pkl',
                         help='Path to the trained model .pkl file')
     parser.add_argument('--N_new_traj', type=int, default=5,
                         help='Number of new random trajectories to test')
