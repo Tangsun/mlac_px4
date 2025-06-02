@@ -132,7 +132,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--world_name",
         type=str,
-        default="windy_test", 
+        # default="windy_small", 
+        default="windy_moderate",
+        # default="windy_high",
         help="Name of the Gazebo world file (e.g., windy_test, default) to be used by PX4 SITL."
     )
     parser.add_argument(
@@ -180,7 +182,7 @@ if __name__ == "__main__":
         f"echo 'Running mlac_mission_node...' && "
         f"ros2 run mlac_sim mlac_mission_node --ros-args \
             -p trajectory_file_name:='{trajectory_file_name}' \
-            -p position_reached_threshold:='0.3' \
+            -p position_reached_threshold:='0.5' \
             -p trajectory_index:={trajectory_index} \
             -p controller_type:='coml'; "
             # -p trajectory_index:={trajectory_index} \

@@ -35,8 +35,13 @@ class OuterLoop:
 
         if self.controller == 'coml':
             package_share_path = get_package_share_directory(self.package_name)
-            trial_name = 'test_L_K_kR_reg_pnorm'
-            filename = 'E=1000_pinit=2.00_pfreq=20_regP=1.0000_regL=0.0200_regK=0.0100_zw=1.80_regkR=0.0001.pkl'
+            # pnorm trial
+            # trial_name = 'pnorm_models/run_3_lambda_0.008_k_0.004_pfreq_20_pnorm_2.0'
+            # filename = 'E=1000_pinit=2.00_pfreq=20_regP=1.0000_regL=0.0080_regK=0.0040_zw=1.50_regkR=0.0001.pkl'
+
+            # 2norm trial
+            trial_name = 'test_L_K_kR_reg'
+            filename = 'E=1000_pinit=2.00_pfreq=2000_regP=1.0000_regL=0.0200_regK=0.0100_zw=1.80_regkR=0.0001.pkl'
             model_dir = os.path.join(package_share_path, 'models', trial_name)
             model_pkl_loc = os.path.join(model_dir, filename)
             try:
@@ -49,9 +54,12 @@ class OuterLoop:
             self.pnorm = convert_p_qbar(train_results['pnorm'])
             self.W = train_results['model']['W']
             self.b = train_results['model']['b']
-            self.Λ = params_to_posdef(train_results['controller']['Λ'])
-            self.K = params_to_posdef(train_results['controller']['K'])
+            # self.Λ = params_to_posdef(train_results['controller']['Λ'])
+            # self.K = params_to_posdef(train_results['controller']['K'])
             self.P = params_to_posdef(train_results['controller']['P'])
+            # debug gains
+            self.Λ = np.diag([1.0, 1.0, 1.5])  # Ensure Λ is a diagonal matrix
+            self.K = 2 * np.diag([1.0, 1.0, 1.5])  # Ensure K is a diagonal matrix
         elif self.controller == 'coml_debug':
             print('COML debug model: no model is loaded!')
             self.pnorm = convert_p_qbar(2.0)
