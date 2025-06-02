@@ -16,25 +16,35 @@ import os
 import argparse
 import json
 import matplotlib.pyplot as plt
+import jax.tree_util as jtu
 
 from jax import config
 config.update("jax_debug_nans", True)
 
 # Parse command line arguments
 parser = argparse.ArgumentParser()
-parser.add_argument('seed', help='seed for pseudo-random number generation',
+parser.add_argument('--seed', default=0, help='seed for pseudo-random number generation',
                     type=int)
-parser.add_argument('M', help='number of trajectories to sub-sample',
+parser.add_argument('--M', default=50, help='number of trajectories to sub-sample',
                     type=int)
 parser.add_argument('--use_x64', help='use 64-bit precision',
                     action='store_true')
 parser.add_argument('--pnorm_init', help='set initial value for p-norm choices', type=float)
-parser.add_argument('--p_freq', help='set frequency for p-norm parameter update', type=float)
-parser.add_argument('--meta_epochs', help='set number of epochs for meta-training', type=int)
-parser.add_argument('--reg_P', help='set regularization for P matrix', type=float)
+parser.add_argument('--p_freq', help='set frequency for p-norm parameter update', type=float, default=50)
+parser.add_argument('--meta_epochs', help='set number of epochs for meta-training', type=int, default=1000)
+parser.add_argument('--reg_P', help='set regularization for P matrix', type=float, default=1.0)
+parser.add_argument('--reg_Lambda', help='set regularization for Lambda matrix', type=float, default=0.0) # New
+parser.add_argument('--reg_K', help='set regularization for K matrix', type=float, default=0.0)       # New
+parser.add_argument('--reg_k_R', help='set regularization for k_R', type=float, default=0.001)
+parser.add_argument('--z_weight', help='set weight for z tracking loss', type=float, default=1.5)
+parser.add_argument('--k_R_xy', help='scale initial k_R for x, y', type=float, default=1.6)
+parser.add_argument('--k_R_z', help='initial z value for k_R', type=float, default=0.4)
 parser.add_argument('--output_dir', help='set output directory', type=str)
+parser.add_argument('--depth', help='number of hidden layers', type=int, default=2)
 parser.add_argument('--hdim', help='number of hidden units per layer', type=int, default=32)
 args = parser.parse_args()
+
+# Now we fix the k_R and k_Omega values according to the alignment tests that we performed under tune_attitude_gains_px4.py
 
 # Set precision
 if args.use_x64:
@@ -68,7 +78,7 @@ hparams = {
 
     # For training the model ensemble
     'ensemble': {
-        'num_hlayers':    2,     # number of hidden layers in each model
+        'num_hlayers':    args.depth,     # number of hidden layers in each model
         'hdim':           args.hdim,    # number of hidden units per layer
         'train_frac':     0.75,  # fraction of each trajectory for training
         'batch_frac':     0.25,  # fraction of training data per batch
@@ -78,7 +88,7 @@ hparams = {
     },
     # For meta-training
     'meta': {
-        'num_hlayers':       2,          # number of hidden layers
+        'num_hlayers':       args.depth,          # number of hidden layers
         'hdim':              args.hdim,         # number of hidden units per layer
         'train_frac':        0.75,       #
         'learning_rate':     1e-2,       # step size for gradient optimization
@@ -99,6 +109,10 @@ hparams = {
         'max_ref':           (4.5, 4.25, 2.0),     #
         'p_freq':            args.p_freq,          # frequency for p-norm update
         'regularizer_P':     args.reg_P,           # coefficient for P regularization
+        'regularizer_k_R':   args.reg_k_R,         # coefficient for k_R regularization
+        'regularizer_Lambda': args.reg_Lambda,
+        'regularizer_K': args.reg_K,
+        'z_tracking_weight': args.z_weight,  # weight for z tracking loss
     },
 }
 
@@ -287,13 +301,7 @@ if __name__ == "__main__":
         ensemble_loss.append(epoch_avg_loss.item())
     
     # META-TRAINING ##########################################################
-    # k_R = jnp.array([1400.0, 1400.0, 1260.0])/1000.0
-    # k_R = jnp.array([5.0, 5.0, 4.0])
-    # k_R = jnp.array([4.250, 4.250, 0.300])*2
-    k_R = jnp.array([1.4, 1.4, 1.26])
-    # k_Omega = jnp.array([330.0, 330.0, 300.0])/1000.0
-    k_Omega = jnp.array([0.330, 0.330, 0.300])
-    J = jnp.diag(jnp.array([0.03, 0.03, 0.09]))
+    J = jnp.diag(jnp.array([0.02167, 0.02167, 0.04000]))
 
     def ode(z, t, meta_params, pnorm_param, params, reference, prior=prior):
         """TODO: docstring."""
@@ -310,19 +318,24 @@ if __name__ == "__main__":
         for W, b in zip(meta_params['W'], meta_params['b']):
             y = jnp.tanh(W@y + b)
 
-        # Parameterized control and adaptation gains
-        gains = jax.tree_util.tree_map(
-            lambda x: params_to_posdef(x),
-            meta_params['gains']
-        )
-        Λ, K, P = gains['Λ'], gains['K'], gains['P']
+        # # Parameterized control and adaptation gains
+        # gains = jax.tree_util.tree_map(
+        #     lambda x: params_to_posdef(x),
+        #     meta_params['gains']
+        # )
+
+        vectorized_keys = {'Λ', 'K', 'P'}
+        gains = {
+            key: params_to_posdef(value) if key in vectorized_keys else value
+            for key, value in meta_params['gains'].items()
+        }
+        Λ, K, P, k_R, k_Omega = gains['Λ'], gains['K'], gains['P'], gains['k_R'], gains['k_Omega']
 
         qn = 1.1 + pnorm_param['pnorm']**2
 
         # A = jax.scipy.linalg.sqrtm(P) @ (jnp.maximum(jnp.abs(pA), 1e-6 * jnp.ones_like(pA))**(qn-1) * jnp.sign(pA) * (jnp.ones_like(pA) - jnp.isclose(pA, 0, atol=1e-6)))
         # Previous implementation P size: feature_size x feature_size
         A = (jnp.maximum(jnp.abs(pA), 1e-6 * jnp.ones_like(pA))**(qn-1) * jnp.sign(pA) * (jnp.ones_like(pA) - jnp.isclose(pA, 0, atol=1e-6))) @ P
-        
 
         # Auxiliary signals
         e, de = q - r, dq - dr
@@ -380,9 +393,15 @@ if __name__ == "__main__":
         # loss_est = f_error@jax.scipy.linalg.cho_solve((chol_P, True),
         #                                               f_error)
 
+        # weighted tracking loss
+        z_w = meta_params['z_track_weights']
+        error_component_weights = jnp.array([1.0, 1.0, z_w])
+        e_weighted = error_component_weights * e
+        # de_weighted = error_component_weights * de
+
         # Integrated cost terms
         dc = jnp.array([
-            e@e + de@de,                # tracking loss
+            e_weighted@e_weighted + de@de,                # tracking loss
             u_d@u_d,                        # control loss
             (f_ext_hat - f_ext)@(f_ext_hat - f_ext),    # estimation loss
         ])
@@ -434,10 +453,10 @@ if __name__ == "__main__":
         shapes = [(hdim, param_dim), ] + (num_hlayers-1)*[(hdim, hdim), ]
     else:
         shapes = []
-    key, *subkeys = jax.random.split(key, 1 + 2*num_hlayers + 3)
+    key, *subkeys = jax.random.split(key, 1 + 2*num_hlayers + 5)
     subkeys_W = subkeys[:num_hlayers]
-    subkeys_b = subkeys[num_hlayers:-3]
-    subkeys_gains = subkeys[-3:]
+    subkeys_b = subkeys[num_hlayers:-5]
+    subkeys_gains = subkeys[-5:]
     meta_params = {
         # hidden layer weights
         'W': [0.1*jax.random.normal(subkeys_W[i], shapes[i])
@@ -452,10 +471,19 @@ if __name__ == "__main__":
                                         ((num_dof*(num_dof + 1)) // 2,)),
             'P': 0.1*jax.random.normal(subkeys_gains[2],
                                         ((hdim*(hdim + 1)) // 2,)),
+            # 'k_R': 1.0*jax.random.normal(subkeys_gains[3],
+            #                             (3,)),
+            'k_R': jnp.array([args.k_R_xy, args.k_R_xy, args.k_R_z]),
+            # 'k_Omega': 0.1*jax.random.normal(subkeys_gains[4],
+            #                             (3,))
+            'k_Omega': jnp.array([0.24, 0.24, 0.24]),
             # 'P': 0.1*jax.random.normal(subkeys_gains[2],
                                     #    ((num_dof*(num_dof + 1)) // 2,)),
         },
     }
+
+    meta_params['z_track_weights'] = hparams['meta']['z_tracking_weight']  # weight for z tracking loss
+
     # In the bash script, we always specify p-norm desried initial values
     # Note that the program always uses the q_bar parameter as the p-norm parameterization
     # However, the printing function should log the final results in p-norm
@@ -500,7 +528,7 @@ if __name__ == "__main__":
 
     @partial(jax.jit, static_argnums=(5, 6))
     def loss(meta_params, pnorm_param, ensemble_params, t_knots, coefs, T, dt,
-                regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P):
+                regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P, regularizer_k_R, regularizer_Lambda, regularizer_K):
         """TODO: docstring."""
         # Simulate on each model for each reference trajectory
         t, x, R_flatten, Omega, A, c = simulate(meta_params, pnorm_param, ensemble_params, t_knots,
@@ -517,24 +545,30 @@ if __name__ == "__main__":
         num_models = c.shape[1]
         normalizer = T * num_refs * num_models
         tracking_loss, control_loss, estimation_loss = c_final
-        reg_P_penalty = jnp.linalg.norm(params_to_posdef(meta_params['gains']['P']))**2
         # reg_P_penalty = jnp.linalg.norm(meta_params['gains']['P'])**2
+        reg_P_penalty = jnp.linalg.norm(params_to_posdef(meta_params['gains']['P']))**2
+        reg_k_R_penalty = jnp.linalg.norm(meta_params['gains']['k_R'])**2
+        reg_Lambda_penalty = jnp.linalg.norm(params_to_posdef(meta_params['gains']['Λ']))**2
+        reg_K_penalty = jnp.linalg.norm(params_to_posdef(meta_params['gains']['K']))**2
         l2_penalty = tree_normsq((meta_params['W'], meta_params['b']))
         # regularization on P Frobenius norm shouldn't be normalized
         loss = (tracking_loss
                 + regularizer_ctrl*control_loss
                 + regularizer_error*estimation_loss
                 + regularizer_l2*l2_penalty
-                ) / normalizer + regularizer_P * reg_P_penalty
-        
+                ) / normalizer + regularizer_P * reg_P_penalty \
+                + regularizer_k_R * reg_k_R_penalty \
+                + regularizer_Lambda * reg_Lambda_penalty \
+                + regularizer_K * reg_K_penalty \
+ 
 
         aux = {
             # for each model in ensemble
+            'loss': loss,
             'tracking_loss':   jnp.sum(c[:, :, -1, 0], axis=0) / num_refs,
             'control_loss':    jnp.sum(c[:, :, -1, 1], axis=0) / num_refs,
             'estimation_loss': jnp.sum(c[:, :, -1, 2], axis=0) / num_refs,
-            'l2_penalty':      l2_penalty,
-            'reg_P_penalty': reg_P_penalty,
+            'normalizer': normalizer,
             'eigs_Λ':
                 jnp.diag(params_to_cholesky(meta_params['gains']['Λ']))**2,
             'eigs_K':
@@ -545,9 +579,9 @@ if __name__ == "__main__":
             'pnorm': pnorm_param['pnorm'], 
             'x': x[0, 0],
             'A': A[0, 0],
-            'R_flatten': R_flatten[0, 0]
-            # 'W': meta_params['W'],
-            # 'b': meta_params['b'],
+            # 'R_flatten': R_flatten[0, 0],
+            # 'k_R': meta_params['gains']['k_R'],
+            # 'k_Omega': meta_params['gains']['k_Omega'],
         }
         return loss, aux
 
@@ -587,23 +621,35 @@ if __name__ == "__main__":
     best_pnorm_param = pnorm_param
 
     @partial(jax.jit, static_argnums=(6, 7))
-    def step_meta(idx, opt_state, pnorm_param, ensemble_params, t_knots, coefs, T, dt, regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P):
+    def step_meta(idx, opt_state, pnorm_param, ensemble_params, t_knots, coefs, T, dt, regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P, regularizer_k_R, regularizer_Lambda, regularizer_K):
         """This function only updates the meta_params in an iteration"""
         meta_params = get_params(opt_state)
-        grads, aux = jax.grad(loss, argnums=0, has_aux=True)(
+        grads_full, aux = jax.grad(loss, argnums=0, has_aux=True)(
             meta_params, pnorm_param, ensemble_params, t_knots, coefs, T, dt,
-            regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P
+            regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P, regularizer_k_R, regularizer_Lambda, regularizer_K
         )
-        opt_state = update_opt(idx, grads, opt_state)
-        return opt_state, aux, grads
+
+        # def zero_attitude_gain_grads(path, leaf):
+        #     # path is a sequence of jtu.PathKeyEntry objects, e.g., (DictKey(key='gains'), DictKey(key='k_R'))
+        #     if len(path) == 2 and isinstance(path[0], jtu.DictKey) and path[0].key == 'gains':
+        #         if isinstance(path[1], jtu.DictKey) and (path[1].key == 'k_R' or path[1].key == 'k_Omega'):
+        #             return jnp.zeros_like(leaf)
+        #     return leaf
+
+        # final_grads = jtu.tree_map_with_path(zero_attitude_gain_grads, grads_full)
+        # opt_state = update_opt(idx, final_grads, opt_state)
+
+        opt_state = update_opt(idx, grads_full, opt_state)
+
+        return opt_state, aux, grads_full
 
     @partial(jax.jit, static_argnums=(6, 7))
-    def step_pnorm(idx, meta_params, opt_state, ensemble_params, t_knots, coefs, T, dt, regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P):
+    def step_pnorm(idx, meta_params, opt_state, ensemble_params, t_knots, coefs, T, dt, regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P, regularizer_k_R, regularizer_Lambda, regularizer_K):
         """This function only updates the meta_params in an iteration"""
         pnorm_param = get_params(opt_state)
         grads, aux = jax.grad(loss, argnums=1, has_aux=True)(
             meta_params, pnorm_param, ensemble_params, t_knots, coefs, T, dt,
-            regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P
+            regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P, regularizer_k_R, regularizer_Lambda, regularizer_K
         )
         opt_state = update_opt(idx, grads, opt_state)
         return opt_state, aux, grads
@@ -616,11 +662,14 @@ if __name__ == "__main__":
     regularizer_ctrl = hparams['meta']['regularizer_ctrl']
     regularizer_error = hparams['meta']['regularizer_error']
     regularizer_P = hparams['meta']['regularizer_P']
+    regularizer_k_R = hparams['meta']['regularizer_k_R']
+    regularizer_Lambda = hparams['meta']['regularizer_Lambda']
+    regularizer_K = hparams['meta']['regularizer_K']
+
     start = time.time()
-    _ = step_meta(0, opt_meta, pnorm_param, train_ensemble, train_t_knots, train_coefs, T, dt, regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P)
-    _ = step_pnorm(0, meta_params, opt_pnorm, train_ensemble, train_t_knots, train_coefs, T, dt, regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P)
-    _ = loss(meta_params, pnorm_param, valid_ensemble, valid_t_knots, valid_coefs, T, dt,
-             0., 0., 0., 0.)
+    _ = step_meta(0, opt_meta, pnorm_param, train_ensemble, train_t_knots, train_coefs, T, dt, regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P, regularizer_k_R, regularizer_Lambda, regularizer_K)
+    _ = step_pnorm(0, meta_params, opt_pnorm, train_ensemble, train_t_knots, train_coefs, T, dt, regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P, regularizer_k_R, regularizer_Lambda, regularizer_K)
+    _ = loss(meta_params, pnorm_param, valid_ensemble, valid_t_knots, valid_coefs, T, dt, 0., 0., 0., 0., 0., 0., 0.)
     end = time.time()
     print('done ({:.2f} s)! Now training ...'.format(
           end - start))
@@ -641,10 +690,8 @@ if __name__ == "__main__":
     for i in tqdm(range(hparams['meta']['num_steps'])):
         opt_meta, train_aux_meta, grads_meta = step_meta(
             step_meta_idx, opt_meta, pnorm_param, train_ensemble, train_t_knots, train_coefs,
-            T, dt, regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P
+            T, dt, regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P, regularizer_k_R, regularizer_Lambda, regularizer_K
         )
-        # print(train_aux_meta)
-        # print('reg_P_penalty: ', train_aux_meta['reg_P_penalty'])
 
         # if i%save_freq == 0:
         #     output_path = os.path.join(output_dir, f'step_meta_epoch{i}.pkl')
@@ -658,7 +705,7 @@ if __name__ == "__main__":
         if (i+1) % hparams['meta']['p_freq'] == 0:
             opt_pnorm, train_aux_pnorm, grads_pnorm = step_pnorm(
                 step_pnorm_idx, new_meta_params, opt_pnorm, train_ensemble, train_t_knots, train_coefs,
-                T, dt, regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P
+                T, dt, regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P, regularizer_k_R, regularizer_Lambda, regularizer_K
             )
             step_pnorm_idx += 1
             # jdebug.print('{grad_pnorm}', grad_pnorm=grads_pnorm)
@@ -673,11 +720,11 @@ if __name__ == "__main__":
             
         valid_loss, valid_aux = loss(
             new_meta_params, new_pnorm_param, valid_ensemble, valid_t_knots, valid_coefs,
-            T, dt, 0., 0., 0., 0.
+            T, dt, 0., 0., 0., 0., 0., 0., 0.
         )
         train_loss, train_aux = loss(
             new_meta_params, new_pnorm_param, train_ensemble, train_t_knots, train_coefs,
-            T, dt, regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P)
+            T, dt, regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P, regularizer_k_R, regularizer_Lambda, regularizer_K)
         
         valid_loss_history.append(valid_loss)
 
@@ -688,10 +735,27 @@ if __name__ == "__main__":
             best_loss = valid_loss
             best_idx_meta = step_meta_idx
             best_idx_pnorm = step_pnorm_idx
+            print("update best meta params at step {:d}".format(step_meta_idx))
+            print('k_R: {}, k_Omega: {}'.format(
+                best_meta_params['gains']['k_R'],
+                best_meta_params['gains']['k_Omega']
+            ))
+            print('valid loss: {:.4f}'.format(valid_loss))
         step_meta_idx += 1
 
     # Save hyperparameters, ensemble, model, and controller
-    output_name = "seed={:d}_M={:d}_E={:d}_pinit={:.2f}_pfreq={:.0f}_regP={:.4f}".format(hparams['seed'], num_models, args.meta_epochs, args.pnorm_init, hparams['meta']['p_freq'], hparams['meta']['regularizer_P'])
+    if hparams['seed'] == 0 and num_models == 50:
+        output_name = "E={:d}_pinit={:.2f}_pfreq={:.0f}_regP={:.4f}_regL={:.4f}_regK={:.4f}_zw={:.2f}_regkR={:.4f}".format(
+            args.meta_epochs, args.pnorm_init,
+            hparams['meta']['p_freq'], hparams['meta']['regularizer_P'],
+            hparams['meta']['regularizer_Lambda'], hparams['meta']['regularizer_K'], hparams['meta']['z_tracking_weight'], hparams['meta']['regularizer_k_R'] # Added regL, regK
+        )
+    else:
+        output_name = "seed={:d}_M={:d}_E={:d}_pinit={:.2f}_pfreq={:.0f}_regP={:.4f}_regL={:.4f}_regK={:.4f}".format(
+            hparams['seed'], num_models, args.meta_epochs, args.pnorm_init,
+            hparams['meta']['p_freq'], hparams['meta']['regularizer_P'],
+            hparams['meta']['regularizer_Lambda'], hparams['meta']['regularizer_K'] # Added regL, regK
+        )
     results = {
         'best_step_meta': best_idx_meta,
         'best_step_pnorm': best_idx_pnorm,

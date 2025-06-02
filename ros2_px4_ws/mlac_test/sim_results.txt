@@ -2,3 +2,22 @@
 [2025-06-01 17:09:45] Mission: "test_learned_gains_in_circle" | Bag Directory: windy_bag_0601_170945
 [2025-06-01 17:12:03] Mission: "test_learned_gains_in_circle" | Bag Directory: windy_bag_0601_171203
 [2025-06-01 17:14:33] Mission: "test_learned_gains_in_spline" | Bag Directory: windy_bag_0601_171433
+[2025-06-01 22:22:56] Mission: "test_reg_kR_L_K" | Bag Directory: windy_bag_0601_222256
+[2025-06-01 22:24:33] Mission: "test_reg_kR_L_K" | Bag Directory: windy_bag_0601_222433
+[2025-06-01 22:26:22] Mission: "test_reg_kR_L_K" | Bag Directory: windy_bag_0601_222622
+[2025-06-01 22:28:01] Mission: "test_reg_kR_L_K" | Bag Directory: windy_bag_0601_222801
+[2025-06-01 23:15:11] Mission: "test new model with training kR and larger reg_L, reg_K" | Bag Directory: windy_bag_0601_231511
+[2025-06-01 23:18:47] Mission: "(circle) test new model with training kR and larger reg_L, reg_K" | Bag Directory: windy_bag_0601_231847
+[2025-06-02 00:05:47] Mission: "(circle) test new model with training kR and 0.02 reg Lambda, 0.01 reg_K, 0.0001 reg_k_R, 1.8 z_weight" | Bag Directory: windy_bag_0602_000547
+[2025-06-02 00:07:00] Mission: "(circle) test new model with training kR and 0.02 reg Lambda, 0.01 reg_K, 0.0001 reg_k_R, 1.8 z_weight" | Bag Directory: windy_bag_0602_000700
+[2025-06-02 00:13:07] Mission: "(spline) test new model with training kR and 0.02 reg Lambda, 0.01 reg_K, 0.0001 reg_k_R, 1.8 z_weight" | Bag Directory: windy_bag_0602_001307
+[2025-06-02 01:42:10] Mission: "(spline) test PNORM new model with training kR and 0.02 reg Lambda, 0.01 reg_K, 0.0001 reg_k_R, 1.8 z_weight" | Bag Directory: windy_bag_0602_014210
+[2025-06-02 01:48:26] Mission: "(spline) test PNORM new model with (debug gains) training kR and 0.02 reg Lambda, 0.01 reg_K, 0.0001 reg_k_R, 1.8 z_weight" | Bag Directory: windy_bag_0602_014826
+[2025-06-02 01:48:49] Mission: "(spline) test PNORM new model with (debug gains) training kR and 0.02 reg Lambda, 0.01 reg_K, 0.0001 reg_k_R, 1.8 z_weight" | Bag Directory: windy_bag_0602_014849
+[2025-06-02 01:51:52] Mission: "(Circle) test PNORM new model with (debug gains) training kR and 0.02 reg Lambda, 0.01 reg_K, 0.0001 reg_k_R, 1.8 z_weight" | Bag Directory: windy_bag_0602_015152
+[2025-06-02 02:01:07] Mission: "(Circle) test PNORM new model with (debug gains) training kR and 0.02 reg Lambda, 0.01 reg_K, 0.0001 reg_k_R, 1.8 z_weight" | Bag Directory: windy_bag_0602_020107
+[2025-06-02 02:04:54] Mission: "(Circle) test PNORM new model with (tuning double gains) training kR and 0.02 reg Lambda, 0.01 reg_K, 0.0001 reg_k_R, 1.8 z_weight" | Bag Directory: windy_bag_0602_020454
+[2025-06-02 02:07:54] Mission: "(Circle) test PNORM new model with (tuning double gains 1.5 in K_z) training kR and 0.02 reg Lambda, 0.01 reg_K, 0.0001 reg_k_R, 1.8 z_weight" | Bag Directory: windy_bag_0602_020754
+[2025-06-02 02:11:05] Mission: "(Circle) test PNORM new model with (tuning double gains 1.5 in K_z) training kR and 0.02 reg Lambda, 0.01 reg_K, 0.0001 reg_k_R, 1.8 z_weight" | Bag Directory: windy_bag_0602_021105
+[2025-06-02 02:15:04] Mission: "(Circle) test PNORM new model with (tuning double gains 1.5 in K_z) training kR and 0.02 reg Lambda, 0.01 reg_K, 0.0001 reg_k_R, 1.8 z_weight" | Bag Directory: windy_bag_0602_021504
+[2025-06-02 02:16:57] Mission: "(Circle) test PNORM new model with (tuning double gains reduced Lambda) training kR and 0.02 reg Lambda, 0.01 reg_K, 0.0001 reg_k_R, 1.8 z_weight" | Bag Directory: windy_bag_0602_021657

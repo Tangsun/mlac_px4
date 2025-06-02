@@ -35,8 +35,8 @@ class OuterLoop:
 
         if self.controller == 'coml':
             package_share_path = get_package_share_directory(self.package_name)
-            trial_name = 'sim_test'
-            filename = 'test.pkl'
+            trial_name = 'test_L_K_kR_reg_pnorm'
+            filename = 'E=1000_pinit=2.00_pfreq=20_regP=1.0000_regL=0.0200_regK=0.0100_zw=1.80_regkR=0.0001.pkl'
             model_dir = os.path.join(package_share_path, 'models', trial_name)
             model_pkl_loc = os.path.join(model_dir, filename)
             try:
@@ -216,9 +216,9 @@ class OuterLoop:
             e_c, edot_c = -e, -edot
 
             # debug gains
-            # current_Lambda = np.diag([2.5, 1.0, 1.0])
-            # current_Lambda = np.eye(3)
-            # current_K_feedback = 2 * np.eye(3)
+            # current_Lambda = 1 * np.diag([1.0, 1.0, 1.5])
+            # # current_Lambda = np.eye(3)
+            # current_K_feedback = 3 * np.diag([1.0, 1.0, 1.5])
 
             # Use the loaded model parameters
             current_Lambda = self.Λ

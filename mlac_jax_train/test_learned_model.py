@@ -220,8 +220,8 @@ def test_new_trajectories(raw_data, N_new, seed, plot_first_traj=True):
     controller_pnorm_qbar = raw_data['pnorm']
 
     controller_gains = {
-        'Λ': controller_gains_raw['Λ'],
-        'K': controller_gains_raw['K'],
+        'Λ': 2 * controller_gains_raw['Λ'],
+        'K': 1.0 * controller_gains_raw['K'],
         'P': controller_gains_raw['P'],
         'k_R': controller_gains_raw['k_R'],
         'k_Omega': controller_gains_raw['k_Omega']
@@ -310,11 +310,11 @@ def test_new_trajectories(raw_data, N_new, seed, plot_first_traj=True):
 def main():
     parser = argparse.ArgumentParser(description="Test and visualize a trained MLAC model.")
     parser.add_argument('--pkl_file_path', type=str,
-                        default='train_results/reg_P_1_reg_k_R_1e-3_k_R_scale_1_k_R_z_1.26_z_training/seed=0_M=50_E=1000_pinit=2.00_pfreq=2000_regP=1.0000.pkl',
+                        default='train_results/test_L_K_kR_reg_pnorm/E=1000_pinit=2.00_pfreq=20_regP=1.0000_regL=0.0200_regK=0.0100_zw=1.80_regkR=0.0001.pkl',
                         help='Path to the trained model .pkl file')
     parser.add_argument('--N_new_traj', type=int, default=5,
                         help='Number of new random trajectories to test')
-    parser.add_argument('--seed', type=int, default=42,
+    parser.add_argument('--seed', type=int, default=62,
                         help='Random seed for trajectory generation')
     parser.add_argument('--no_plot_train_traj', action='store_true',
                         help='Disable plotting of training trajectory')
