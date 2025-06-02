@@ -36,12 +36,12 @@ class OuterLoop:
         if self.controller == 'coml':
             package_share_path = get_package_share_directory(self.package_name)
             # pnorm trial
-            # trial_name = 'pnorm_models/run_3_lambda_0.008_k_0.004_pfreq_20_pnorm_2.0'
-            # filename = 'E=1000_pinit=2.00_pfreq=20_regP=1.0000_regL=0.0080_regK=0.0040_zw=1.50_regkR=0.0001.pkl'
+            trial_name = 'pnorm_models/run_3_lambda_0.008_k_0.004_pfreq_20_pnorm_2.0'
+            filename = 'E=1000_pinit=2.00_pfreq=20_regP=1.0000_regL=0.0080_regK=0.0040_zw=1.50_regkR=0.0001.pkl'
 
             # 2norm trial
-            trial_name = 'test_L_K_kR_reg'
-            filename = 'E=1000_pinit=2.00_pfreq=2000_regP=1.0000_regL=0.0200_regK=0.0100_zw=1.80_regkR=0.0001.pkl'
+            # trial_name = 'test_L_K_kR_reg'
+            # filename = 'E=1000_pinit=2.00_pfreq=2000_regP=1.0000_regL=0.0200_regK=0.0100_zw=1.80_regkR=0.0001.pkl'
             model_dir = os.path.join(package_share_path, 'models', trial_name)
             model_pkl_loc = os.path.join(model_dir, filename)
             try:

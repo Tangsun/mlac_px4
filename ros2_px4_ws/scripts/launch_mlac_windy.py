@@ -120,7 +120,8 @@ if __name__ == "__main__":
         "--trajectory_file",
         type=str,
         # default = "N100_T30.0_spline_11col_zero_yaw.npy",
-        default = "circle_r2.0_t30.0s_alt2.0_psi0deg_50hz_11col.npy",
+        # default = "circle_r2.0_t15.0s_alt2.0_psi0deg_50hz_11col.npy",
+        default = "figure8_L4.0_W2.0_t10s_alt2.0_initpsi0deg_FORCEZEROPsi_50hz_11col.npy",
         help="Name of the .npy trajectory file in 'mlac_sim/traj_data/' folder to be used by mlac_mission_node."
     )
     parser.add_argument(
@@ -182,7 +183,7 @@ if __name__ == "__main__":
         f"echo 'Running mlac_mission_node...' && "
         f"ros2 run mlac_sim mlac_mission_node --ros-args \
             -p trajectory_file_name:='{trajectory_file_name}' \
-            -p position_reached_threshold:='0.5' \
+            -p position_reached_threshold:='0.3' \
             -p trajectory_index:={trajectory_index} \
             -p controller_type:='coml'; "
             # -p trajectory_index:={trajectory_index} \

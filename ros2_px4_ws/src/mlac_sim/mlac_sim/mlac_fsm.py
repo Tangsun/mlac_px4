@@ -14,6 +14,7 @@ class MissionPhase(Enum):
     AT_INITIAL_HOVER = auto()               
     DEBUG_ROTATING_YAW_HOVER = auto()
     MOVING_TO_TRAJECTORY_START = auto()
+    HOVER_AT_TRAJECTORY_START = auto() # New phase
     EXECUTING_TRAJECTORY = auto()
     MOVING_TO_FINAL_HOVER = auto()
     AT_FINAL_HOVER = auto()                 
@@ -293,7 +294,7 @@ class MissionFiniteStateMachine:
                 pos_array=self.debug_hover_position, 
                 psi=current_debug_psi_normalized,
                 dpsi=self.debug_yaw_rate_rps,
-                force_zero_feedback=True
+                force_zero_feedback=True # Changed to True as per existing code for debug mode
             )
             if elapsed_debug_time_sec >= self.debug_duration_sec:
                 self.logger.info("FSM: Debug rotating yaw finished. Proceeding to landing.")
@@ -315,12 +316,22 @@ class MissionFiniteStateMachine:
                 return self._create_goal_from_position_array(pos_array=current_p_np, force_zero_feedback=True), True, None, None
             active_goal = self.trajectory_start_point_goal_py 
             if self._is_at_target_pose(current_p_np, self.trajectory_start_point_goal_py.p):
+                self._transition_to_phase(MissionPhase.HOVER_AT_TRAJECTORY_START) # Transition to new hover phase
+
+        elif self.current_phase == MissionPhase.HOVER_AT_TRAJECTORY_START: # New phase logic
+            if not self.is_trajectory_loaded_fsm or not self.trajectory_start_point_goal_py:
+                self.logger.error("FSM: In HOVER_AT_TRAJECTORY_START but trajectory not ready. Switching to IDLE.")
+                self._transition_to_phase(MissionPhase.IDLE); self.trajectory_completed_in_fsm = True
+                self.fsm_trajectory_start_event_time = None; self.fsm_trajectory_end_event_time = None
+                return self._create_goal_from_position_array(pos_array=current_p_np, force_zero_feedback=True), True, None, None
+            
+            active_goal = self.trajectory_start_point_goal_py # Hover at the trajectory start point
+            if self.phase_start_time and (now - self.phase_start_time) >= self.hover_duration:
                 self._transition_to_phase(MissionPhase.EXECUTING_TRAJECTORY)
                 self.trajectory_execution_start_time_ros = self.clock.now() # FSM internal timer for duration
                 self.fsm_trajectory_start_event_time = self.trajectory_execution_start_time_ros # Event time
                 current_cycle_start_event_time = self.fsm_trajectory_start_event_time # For this cycle's return
                 self.logger.info(f"FSM: --> Started EXECUTING_TRAJECTORY at ROS time: {self.fsm_trajectory_start_event_time.nanoseconds / 1e9:.3f} s")
-
 
         elif self.current_phase == MissionPhase.EXECUTING_TRAJECTORY:
             if not self.is_trajectory_loaded_fsm or self.trajectory_data is None or self.trajectory_execution_start_time_ros is None:
@@ -368,7 +379,7 @@ class MissionFiniteStateMachine:
 
         elif self.current_phase == MissionPhase.LANDING:
             target_z_next = self.current_goal_py.p[2] 
-            if self.phase_start_time: 
+            if self.phase_start_time and self.last_landing_update_time: #Ensure last_landing_update_time is not None
                  dt_land = (now - self.last_landing_update_time).nanoseconds / 1e9
                  target_z_next = self.current_goal_py.p[2] - self.landing_descent_rate * dt_land
             self.last_landing_update_time = now
@@ -380,8 +391,11 @@ class MissionFiniteStateMachine:
             self.current_goal_py.force_zero_feedback_contribution = False
             active_goal = self.current_goal_py
             
-            is_at_landing_xy = self._is_at_target_pose(current_p_np[:2], self.landing_pos_param[:2])
-            is_at_landing_z = abs(current_p_np[2] - self.landing_pos_param[2]) < 0.1
+            # Using self.pos_reached_thresh_sq for XY check, and a fixed 0.1m for Z.
+            # Consider if pos_reached_thresh should be used for Z as well, or a separate param.
+            current_landing_xy_sq_error = np.sum((current_p_np[:2] - self.landing_pos_param[:2])**2)
+            is_at_landing_xy = current_landing_xy_sq_error < self.pos_reached_thresh_sq 
+            is_at_landing_z = abs(current_p_np[2] - self.landing_pos_param[2]) < 0.1 # Original threshold
 
             if (is_at_landing_xy and is_at_landing_z) or not mavros_state.armed:
                  log_reason = "position criteria" if (is_at_landing_xy and is_at_landing_z) else "disarmed"
@@ -403,8 +417,4 @@ class MissionFiniteStateMachine:
              self.logger.warn(f"FSM: active_goal was None in phase {self.current_phase.name}. Defaulting to current pose with force_zero_feedback=True.")
              active_goal = self._create_goal_from_position_array(pos_array=current_p_np, force_zero_feedback=True)
         
-        # Return current event times for this cycle
-        # Note: self.fsm_trajectory_start_event_time and self.fsm_trajectory_end_event_time
-        # store the *last* time these events occurred in the current mission.
-        # current_cycle_start_event_time and current_cycle_end_event_time are specific to this update cycle.
         return active_goal, self.trajectory_completed_in_fsm, current_cycle_start_event_time, current_cycle_end_event_time

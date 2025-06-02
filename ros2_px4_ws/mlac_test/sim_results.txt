@@ -7,3 +7,17 @@
 [2025-06-02 16:09:17] Mission: "(debug gains 1; high wind) test best 2norm model circle performance" | Bag Directory: windy_bag_0602_160917
 [2025-06-02 16:11:54] Mission: "(debug gains 1; high wind) test best 2norm model circle performance" | Bag Directory: windy_bag_0602_161154
 [2025-06-02 16:13:23] Mission: "(debug gains 1; moderate wind) test best 2norm model circle performance" | Bag Directory: windy_bag_0602_161323
+
+[2025-06-02 17:36:18] Mission: "pnorm fixed gain: moderate wind, slow trajectory" | Bag Directory: windy_bag_0602_173618
+[2025-06-02 17:38:52] Mission: "2norm fixed gain: moderate wind, slow trajectory" | Bag Directory: windy_bag_0602_173852
+[2025-06-02 17:41:13] Mission: "2norm fixed gain: moderate wind, slow trajectory, test traj start hover" | Bag Directory: windy_bag_0602_174113
+[2025-06-02 18:02:31] Mission: "pnorm fixed gain: moderate wind, slow trajectory, test traj start hover" | Bag Directory: windy_bag_0602_180231
+[2025-06-02 18:04:17] Mission: "2norm fixed gain: moderate wind, fast trajectory, test traj start hover" | Bag Directory: windy_bag_0602_180417
+[2025-06-02 18:06:02] Mission: "2norm fixed gain: moderate wind, fast trajectory, test traj start hover" | Bag Directory: windy_bag_0602_180602
+[2025-06-02 18:07:56] Mission: "2norm fixed gain: high wind, fast trajectory, test traj start hover" | Bag Directory: windy_bag_0602_180756
+[2025-06-02 18:09:47] Mission: "2norm fixed gain: high wind, fast trajectory, test traj start hover" | Bag Directory: windy_bag_0602_180947
+[2025-06-02 18:12:03] Mission: "pnorm fixed gain: high wind, fast trajectory, test traj start hover" | Bag Directory: windy_bag_0602_181203
+[2025-06-02 18:26:17] Mission: "pnorm fixed gain: low wind, test figure8" | Bag Directory: windy_bag_0602_182617
+[2025-06-02 18:28:50] Mission: "2norm fixed gain: moderate wind, test figure8" | Bag Directory: windy_bag_0602_182850
+[2025-06-02 18:31:38] Mission: "2norm fixed gain: moderate wind, test fast figure8" | Bag Directory: windy_bag_0602_183138
+[2025-06-02 18:34:22] Mission: "pnorm fixed gain: moderate wind, test fast figure8" | Bag Directory: windy_bag_0602_183422
