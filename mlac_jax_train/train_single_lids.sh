@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=train_2norm_single
+#SBATCH --job-name=train_3_on_gpu
 #SBATCH -o %j.log
 #SBATCH --partition=cpu
 #SBATCH --nodes=1
