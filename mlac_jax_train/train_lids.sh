@@ -143,7 +143,7 @@ launch_experiment_on_gpu() {
     (
       export CUDA_VISIBLE_DEVICES=${gpu_slot_id} # Assign specific GPU to this sub-process
       # Ensure your python script is correctly named and located
-      python train_z_up_kR.py ${script_params}
+      python train_kR.py ${script_params}
     ) &
     local job_pid=$!
     running_pid_to_gpu_slot_map[$job_pid]=${gpu_slot_id}
