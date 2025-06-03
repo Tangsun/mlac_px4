@@ -17,7 +17,10 @@
 [2025-06-02 18:07:56] Mission: "2norm fixed gain: high wind, fast trajectory, test traj start hover" | Bag Directory: windy_bag_0602_180756
 [2025-06-02 18:09:47] Mission: "2norm fixed gain: high wind, fast trajectory, test traj start hover" | Bag Directory: windy_bag_0602_180947
 [2025-06-02 18:12:03] Mission: "pnorm fixed gain: high wind, fast trajectory, test traj start hover" | Bag Directory: windy_bag_0602_181203
-[2025-06-02 18:26:17] Mission: "pnorm fixed gain: low wind, test figure8" | Bag Directory: windy_bag_0602_182617
+[2025-06-02 18:26:17] Mission: "pnorm fixed gain: low wind, test figure8" | Bag Directory: windy_bag_0602_182617 # BEST BAG FOR P
 [2025-06-02 18:28:50] Mission: "2norm fixed gain: moderate wind, test figure8" | Bag Directory: windy_bag_0602_182850
 [2025-06-02 18:31:38] Mission: "2norm fixed gain: moderate wind, test fast figure8" | Bag Directory: windy_bag_0602_183138
 [2025-06-02 18:34:22] Mission: "pnorm fixed gain: moderate wind, test fast figure8" | Bag Directory: windy_bag_0602_183422
+[2025-06-03 12:54:46] Mission: "2norm fixed gain: moderate wind, test fast figure8" | Bag Directory: windy_bag_0603_125446
+[2025-06-03 12:59:17] Mission: "2norm fixed gain: moderate wind, test fast figure8" | Bag Directory: windy_bag_0603_125917
+[2025-06-03 13:05:16] Mission: "2norm fixed gain: low wind, test figure8" | Bag Directory: windy_bag_0603_130516 # COMPARISON BAG FOR 2

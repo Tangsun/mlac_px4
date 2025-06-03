@@ -42,6 +42,7 @@ parser.add_argument('--k_R_z', help='initial z value for k_R', type=float, defau
 parser.add_argument('--output_dir', help='set output directory', type=str)
 parser.add_argument('--depth', help='number of hidden layers', type=int, default=2)
 parser.add_argument('--hdim', help='number of hidden units per layer', type=int, default=32)
+parser.add_argument('--learning_rate', help='set learning rate for training', type=float, default=1e-2)
 args = parser.parse_args()
 
 # Now we fix the k_R and k_Omega values according to the alignment tests that we performed under tune_attitude_gains_px4.py
@@ -91,7 +92,7 @@ hparams = {
         'num_hlayers':       args.depth,          # number of hidden layers
         'hdim':              args.hdim,         # number of hidden units per layer
         'train_frac':        0.75,       #
-        'learning_rate':     1e-2,       # step size for gradient optimization
+        'learning_rate':     args.learning_rate,       # step size for gradient optimization
         'num_steps':         args.meta_epochs,        # maximum number of gradient steps
         'regularizer_l2':    1e-4,       # coefficient for L2-regularization
         'regularizer_ctrl':  1e-3,       #
@@ -643,12 +644,22 @@ if __name__ == "__main__":
     def step_pnorm(idx, meta_params, opt_state, ensemble_params, t_knots, coefs, T, dt, regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P, regularizer_k_R, regularizer_Lambda, regularizer_K):
         """This function only updates the meta_params in an iteration"""
         pnorm_param = get_params(opt_state)
-        grads, aux = jax.grad(loss, argnums=1, has_aux=True)(
+        grads_full, aux = jax.grad(loss, argnums=1, has_aux=True)(
             meta_params, pnorm_param, ensemble_params, t_knots, coefs, T, dt,
             regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P, regularizer_k_R, regularizer_Lambda, regularizer_K
         )
-        opt_state = update_opt(idx, grads, opt_state)
-        return opt_state, aux, grads
+
+        def zero_attitude_gain_grads(path, leaf):
+            # path is a sequence of jtu.PathKeyEntry objects, e.g., (DictKey(key='gains'), DictKey(key='k_R'))
+            if len(path) == 2 and isinstance(path[0], jtu.DictKey) and path[0].key == 'gains':
+                if isinstance(path[1], jtu.DictKey) and (path[1].key == 'k_R' or path[1].key == 'k_Omega'):
+                    return jnp.zeros_like(leaf)
+            return leaf
+        
+        final_grads = jtu.tree_map_with_path(zero_attitude_gain_grads, grads_full)
+
+        opt_state = update_opt(idx, final_grads, opt_state)
+        return opt_state, aux, final_grads
 
     # Pre-compile before training
     print('META-TRAINING: Pre-compiling ... ', end='', flush=True)

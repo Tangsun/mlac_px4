@@ -53,9 +53,10 @@ data_files_list = [
 # This will install files like 'models/sim_test/test.pkl' to
 # 'share/mlac_sim/models/sim_test/test.pkl'
 model_files_list = package_files('models', os.path.join('share', package_name, 'models'))
+onboard_model_files_list = package_files('onboard_models', os.path.join('share', package_name, 'onboard_models'))
 
 # Combine all data_files entries
-all_data_files = data_files_list + model_files_list
+all_data_files = data_files_list + model_files_list + onboard_model_files_list
 
 setup(
     name=package_name,
