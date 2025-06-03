@@ -141,7 +141,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--auto_kill_duration_sec",
         type=int,
-        default=90, 
+        default=240, 
         help="Duration in seconds before automatically killing the TMUX session. Set to 0 to disable auto-kill and attach instead."
     )
 
@@ -229,14 +229,14 @@ if __name__ == "__main__":
         f"echo '>>> Initiating flight sequence...'; "
         f"source {ros2_ws_path}/install/setup.bash && "
         f"echo 'Sending START_MISSION command...' && "
-        f"ros2 topic pub --once /mission_control/command std_msgs/msg/String '{{data: \"START_MISSION\"}}' && "
-        f"sleep 5 && " 
-        f"echo 'Attempting to ARM drone...' && "
-        f"ros2 service call /mavros/cmd/arming mavros_msgs/srv/CommandBool '{{value: true}}' && "
-        f"sleep 2 && "
-        f"echo 'Attempting to set OFFBOARD mode...' && "
-        f"ros2 service call /mavros/set_mode mavros_msgs/srv/SetMode '{{custom_mode: \"OFFBOARD\"}}'; "
-        f"echo 'Flight initiation commands sent.'; exec bash" 
+        # f"ros2 topic pub --once /mission_control/command std_msgs/msg/String '{{data: \"START_MISSION\"}}' && "
+        # f"sleep 5 && " 
+        # f"echo 'Attempting to ARM drone...' && "
+        # f"ros2 service call /mavros/cmd/arming mavros_msgs/srv/CommandBool '{{value: true}}' && "
+        # f"sleep 2 && "
+        # f"echo 'Attempting to set OFFBOARD mode...' && "
+        # f"ros2 service call /mavros/set_mode mavros_msgs/srv/SetMode '{{custom_mode: \"OFFBOARD\"}}'; "
+        # f"echo 'Flight initiation commands sent.'; exec bash" 
     )
     
     general_command_pane = (
@@ -253,7 +253,7 @@ if __name__ == "__main__":
         f"sleep 5; echo '>>> Launching MAVROS...'; source {ros2_ws_path}/install/setup.bash && ros2 launch mavros px4.launch fcu_url:=udp://:14540@localhost:14557; echo 'MAVROS pane exited.'; exec bash", 
         mlac_node_command,  
         set_stream_rates_command, 
-        rosbag_command,     
+        # rosbag_command,     
         f"sleep 15; echo '>>> Launching QGroundControl...'; cd {os.path.dirname(px4_src_path)} && ./QGroundControl.AppImage; echo 'QGC pane exited.'; exec bash", 
         flight_initiation_command, 
         general_command_pane 
