@@ -7,3 +7,4 @@
 [2025-06-03 18:14:47] Mission: "coml_pnorm_low_wind" | Bag Directory: rosbag_coml_pnorm_low_wind_20250603_181447
 [2025-06-03 18:19:11] Mission: "coml_pnorm_low_wind" | Bag Directory: rosbag_coml_pnorm_low_wind_20250603_181911
 [2025-06-03 18:23:49] Mission: "coml_fix2norm_low_wind" | Bag Directory: rosbag_coml_fix2norm_low_wind_20250603_182349
+[2025-06-03 18:27:29] Mission: "pid_low_wind" | Bag Directory: rosbag_pid_low_wind_20250603_182729
