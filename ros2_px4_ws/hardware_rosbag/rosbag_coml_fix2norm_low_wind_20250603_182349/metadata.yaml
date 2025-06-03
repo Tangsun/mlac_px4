@@ -1,0 +1,56 @@
+rosbag2_bagfile_information:
+  version: 5
+  storage_identifier: sqlite3
+  duration:
+    nanoseconds: 106275803333
+  starting_time:
+    nanoseconds_since_epoch: 1748989462120326835
+  message_count: 17144
+  topics_with_message_count:
+    - topic_metadata:
+        name: /mavros/local_position/pose
+        type: geometry_msgs/msg/PoseStamped
+        serialization_format: cdr
+        offered_qos_profiles: "- history: 1\n  depth: 5\n  reliability: 2\n  durability: 2\n  deadline:\n    sec: 9223372036\n    nsec: 854775807\n  lifespan:\n    sec: 9223372036\n    nsec: 854775807\n  liveliness: 1\n  liveliness_lease_duration:\n    sec: 9223372036\n    nsec: 854775807\n  avoid_ros_namespace_conventions: false"
+      message_count: 5310
+    - topic_metadata:
+        name: /mavros/local_position/velocity_body
+        type: geometry_msgs/msg/TwistStamped
+        serialization_format: cdr
+        offered_qos_profiles: "- history: 1\n  depth: 5\n  reliability: 2\n  durability: 2\n  deadline:\n    sec: 9223372036\n    nsec: 854775807\n  lifespan:\n    sec: 9223372036\n    nsec: 854775807\n  liveliness: 1\n  liveliness_lease_duration:\n    sec: 9223372036\n    nsec: 854775807\n  avoid_ros_namespace_conventions: false"
+      message_count: 5310
+    - topic_metadata:
+        name: /mavros/setpoint_raw/attitude
+        type: mavros_msgs/msg/AttitudeTarget
+        serialization_format: cdr
+        offered_qos_profiles: "- history: 1\n  depth: 1\n  reliability: 2\n  durability: 2\n  deadline:\n    sec: 9223372036\n    nsec: 854775807\n  lifespan:\n    sec: 9223372036\n    nsec: 854775807\n  liveliness: 1\n  liveliness_lease_duration:\n    sec: 9223372036\n    nsec: 854775807\n  avoid_ros_namespace_conventions: false"
+      message_count: 2139
+    - topic_metadata:
+        name: /mavros/state
+        type: mavros_msgs/msg/State
+        serialization_format: cdr
+        offered_qos_profiles: "- history: 1\n  depth: 10\n  reliability: 1\n  durability: 1\n  deadline:\n    sec: 9223372036\n    nsec: 854775807\n  lifespan:\n    sec: 9223372036\n    nsec: 854775807\n  liveliness: 1\n  liveliness_lease_duration:\n    sec: 9223372036\n    nsec: 854775807\n  avoid_ros_namespace_conventions: false\n- history: 1\n  depth: 10\n  reliability: 1\n  durability: 2\n  deadline:\n    sec: 9223372036\n    nsec: 854775807\n  lifespan:\n    sec: 9223372036\n    nsec: 854775807\n  liveliness: 1\n  liveliness_lease_duration:\n    sec: 9223372036\n    nsec: 854775807\n  avoid_ros_namespace_conventions: false"
+      message_count: 106
+    - topic_metadata:
+        name: /mlac_mission_node/control_log
+        type: mlac_msgs/msg/ControllerLog
+        serialization_format: cdr
+        offered_qos_profiles: "- history: 1\n  depth: 10\n  reliability: 1\n  durability: 2\n  deadline:\n    sec: 9223372036\n    nsec: 854775807\n  lifespan:\n    sec: 9223372036\n    nsec: 854775807\n  liveliness: 1\n  liveliness_lease_duration:\n    sec: 9223372036\n    nsec: 854775807\n  avoid_ros_namespace_conventions: false"
+      message_count: 2139
+    - topic_metadata:
+        name: /mlac_mission_node/trajectory_complete_status
+        type: std_msgs/msg/Bool
+        serialization_format: cdr
+        offered_qos_profiles: "- history: 1\n  depth: 1\n  reliability: 1\n  durability: 1\n  deadline:\n    sec: 9223372036\n    nsec: 854775807\n  lifespan:\n    sec: 9223372036\n    nsec: 854775807\n  liveliness: 1\n  liveliness_lease_duration:\n    sec: 9223372036\n    nsec: 854775807\n  avoid_ros_namespace_conventions: false"
+      message_count: 2140
+  compression_format: ""
+  compression_mode: ""
+  relative_file_paths:
+    - rosbag_coml_fix2norm_low_wind_20250603_182349_0.db3
+  files:
+    - path: rosbag_coml_fix2norm_low_wind_20250603_182349_0.db3
+      starting_time:
+        nanoseconds_since_epoch: 1748989462120326835
+      duration:
+        nanoseconds: 106275803333
+      message_count: 17144

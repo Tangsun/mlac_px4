@@ -36,11 +36,11 @@ class OuterLoop:
         if self.controller == 'coml':
             package_share_path = get_package_share_directory(self.package_name)
             # Cleaned up small model files
-            trial_name = 'pnorm_models'
-            filename = 'test.pkl'
-
-            # trial_name = '2norm_models'
+            # trial_name = 'pnorm_models'
             # filename = 'test.pkl'
+
+            trial_name = '2norm_models'
+            filename = 'test.pkl'
 
             model_dir = os.path.join(package_share_path, 'onboard_models', trial_name)
 
