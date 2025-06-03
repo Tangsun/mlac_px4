@@ -1,0 +1,5 @@
+[2025-06-03 16:50:01] Mission: "hardware_wind_pid" | Bag Directory: rosbag_hardware_nowind_pid_20250603_165001
+[2025-06-03 17:06:01] Mission: "hardware_nowind_coml_lowergains" | Bag Directory: rosbag_hardware_nowind_coml_lowergains_20250603_170601
+[2025-06-03 17:08:14] Mission: "hardware_nowind_coml_lowergains" | Bag Directory: rosbag_hardware_nowind_coml_lowergains_20250603_170814
+[2025-06-03 17:17:09] Mission: "hardware_nowind_coml_normalgains" | Bag Directory: rosbag_hardware_nowind_coml_normalgains_20250603_171709
+[2025-06-03 17:26:22] Mission: "coml_withwind" | Bag Directory: rosbag_coml_withwind_20250603_172622

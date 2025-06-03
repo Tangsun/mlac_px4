@@ -36,11 +36,11 @@ class OuterLoop:
         if self.controller == 'coml':
             package_share_path = get_package_share_directory(self.package_name)
             # Cleaned up small model files
-            # trial_name = 'pnorm_models'
-            # filename = 'test.pkl'
-
-            trial_name = '2norm_models'
+            trial_name = 'pnorm_models'
             filename = 'test.pkl'
+
+            # trial_name = '2norm_models'
+            # filename = 'test.pkl'
 
             model_dir = os.path.join(package_share_path, 'onboard_models', trial_name)
 
@@ -67,8 +67,8 @@ class OuterLoop:
             # self.K = params_to_posdef(train_results['controller']['K'])
             self.P = params_to_posdef(train_results['controller']['P'])
             # debug gains
-            self.Λ = np.diag([1.0, 1.0, 1.5])  # Ensure Λ is a diagonal matrix
-            self.K = 2 * np.diag([1.0, 1.0, 1.5])  # Ensure K is a diagonal matrix
+            self.Λ = 1 * np.diag([1.0, 1.0, 1.5])  # Ensure Λ is a diagonal matrix
+            self.K = 1.0 * 2 * np.diag([1.0, 1.0, 1.5])  # Ensure K is a diagonal matrix
         elif self.controller == 'coml_debug':
             print('COML debug model: no model is loaded!')
             self.pnorm = convert_p_qbar(2.0)

@@ -142,8 +142,7 @@ if __name__ == "__main__":
         f"echo 'Running mlac_mission_node...' && "
         f"ros2 run mlac_sim mlac_mission_node --ros-args \
             -p trajectory_file_name:='{trajectory_file_name}' \
-            -p position_reached_threshold:='0.3' \
-            -p trajectory_index:={trajectory_index} \
+            -p position_reached_threshold:='0.8' \
             -p controller_type:='coml'; "
         f"echo 'mlac_mission_node pane exited.'; exec bash"
     )
@@ -165,13 +164,16 @@ if __name__ == "__main__":
     
     # Command for a general-purpose command pane
     command_pane_setup = (
-        f"sleep 5; "
+        f"sleep 20; "
         f"echo '>>> Sourcing workspace & venv for mission commands...'; "
         f"source {ros2_ws_path}/install/setup.bash && "
         f"source {venv_path}/bin/activate && "
         f"echo 'Workspace sourced. Ready for mission commands ros2 topic pub --once /mission_control/command std_msgs/msg/String etc.'; "
-        f"exec bash"
+        f"ros2 topic pub --once /mission_control/command std_msgs/msg/String '{{data: \"START_MISSION\"}}' ; exec bash"
     )
+
+    # In case time limit reached,
+    # ros2 topic pub --once /mission_control/command std_msgs/msg/String '{data: "START_MISSION"}'
 
     # Command for ROS Bag Recording
     # Key topics: MAVROS state, local position, our attitude setpoints, our controller log, TF transforms
@@ -217,14 +219,7 @@ if __name__ == "__main__":
         # Pane 5: General command pane for sending mission commands etc.
         command_pane_setup,
         
-        # Pane 6: Send mission command
-        f"sleep 15; " 
-        f"echo '>>> Initiating flight sequence...'; "
-        f"source {ros2_ws_path}/install/setup.bash && "
-        f"echo 'Sending START_MISSION command...' && "
-        f"ros2 topic pub --once /mission_control/command std_msgs/msg/String '{{data: \"START_MISSION\"}}' ; exec bash"
-
-        # Pane 7: zenoh
+        # Pane 6: zenoh
         f"sleep 10; echo '>>> Launching zenoh'; zenoh_router; exec bash",
     ]
 

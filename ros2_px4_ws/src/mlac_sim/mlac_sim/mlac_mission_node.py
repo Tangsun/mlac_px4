@@ -35,7 +35,7 @@ class MlacMissionNode(Node):
         self.declare_parameter('trajectory_file_name', 'circle_trajectory_8col_50hz.npy', ParameterDescriptor(description="Name of the .npy trajectory file in 'mlac_sim/traj_data/' folder"))
         self.declare_parameter('trajectory_index', 0, ParameterDescriptor(description="Index of the trajectory to use if the .npy file contains multiple trajectories. Default is 0."))
         # self.declare_parameter('vehicle_mass', 4.562, ParameterDescriptor(description="Vehicle mass (kg)"))
-        self.declare_parameter('vehicle_mass', 2.0, ParameterDescriptor(description="Vehicle mass (kg)"))
+        self.declare_parameter('vehicle_mass', 2.6, ParameterDescriptor(description="Vehicle mass (kg)"))
         # self.declare_parameter('Kp', [2.0, 2.0, 3.0], ParameterDescriptor(description="Proportional gains [Px, Py, Pz]"))
         self.declare_parameter('Kp', [2.0, 2.0, 2.0], ParameterDescriptor(description="Proportional gains [Px, Py, Pz]"))
         self.declare_parameter('Ki', [1.0, 1.0, 1.5], ParameterDescriptor(description="Integral gains [Ix, Iy, Iz]"))
@@ -43,8 +43,8 @@ class MlacMissionNode(Node):
         self.declare_parameter('Kd', [4.0, 4.0, 4.0], ParameterDescriptor(description="Derivative gains [Dx, Dy, Dz]"))
         self.declare_parameter('max_pos_err', [0.5, 0.5, 0.5], ParameterDescriptor(description="Max position error for PID saturation [err_x, err_y, err_z]"))
         self.declare_parameter('max_vel_err', [1.0, 1.0, 1.0], ParameterDescriptor(description="Max velocity error for PID saturation [verr_x, verr_y, verr_z]"))
-        # self.declare_parameter('max_thrust_N', 4.562 * 9.8 / 0.728, ParameterDescriptor(description="Max thrust capability (N)"))
-        self.declare_parameter('max_thrust_N', 2.0 * 9.81 / 0.728, ParameterDescriptor(description="Max thrust capability (N)"))
+        self.declare_parameter('max_thrust_N', 2.6 * 9.81 / 0.760, ParameterDescriptor(description="Max thrust capability (N)"))
+        # self.declare_parameter('max_thrust_N', 2.0 * 9.81 / 0.728, ParameterDescriptor(description="Max thrust capability (N)"))
 
         # ++ NEW DEBUG PARAMETERS ++
         self.declare_parameter('debug_rotating_yaw_active', False, ParameterDescriptor(description="Activate debug mode: hover with rotating yaw, zero feedback."))
@@ -55,9 +55,9 @@ class MlacMissionNode(Node):
         # ++ END NEW DEBUG PARAMETERS ++
 
         # New Mission Logic Parameters for FSM
-        self.declare_parameter('initial_hover_position', [0.0, 0.0, 2.0], ParameterDescriptor(description="Initial hover position [x, y, z] (m)"))
-        self.declare_parameter('final_hover_position', [0.0, 0.0, 2.0], ParameterDescriptor(description="Final hover position [x, y, z] (m)"))
-        self.declare_parameter('landing_position', [0.0, 0.0, 0.0], ParameterDescriptor(description="Landing target position [x, y, z] (m), z is target altitude before disarm"))
+        self.declare_parameter('initial_hover_position', [1.3, -2.8, 1.5], ParameterDescriptor(description="Initial hover position [x, y, z] (m)"))
+        self.declare_parameter('final_hover_position', [1.3, -2.8, 1.5], ParameterDescriptor(description="Final hover position [x, y, z] (m)"))
+        self.declare_parameter('landing_position', [1.3, -2.8, 0.732], ParameterDescriptor(description="Landing target position [x, y, z] (m), z is target altitude before disarm"))
         self.declare_parameter('position_reached_threshold', 0.2, ParameterDescriptor(description="Threshold to consider a position reached (m)"))
         self.declare_parameter('hover_duration_sec', 5.0, ParameterDescriptor(description="Duration to hover at initial/final points (s)"))
         self.declare_parameter('landing_descent_rate_mps', 0.3, ParameterDescriptor(description="Descent rate for landing (m/s positive value)"))
