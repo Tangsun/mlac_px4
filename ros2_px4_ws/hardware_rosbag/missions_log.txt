@@ -4,3 +4,4 @@
 [2025-06-03 17:17:09] Mission: "hardware_nowind_coml_normalgains" | Bag Directory: rosbag_hardware_nowind_coml_normalgains_20250603_171709
 [2025-06-03 17:26:22] Mission: "coml_withwind" | Bag Directory: rosbag_coml_withwind_20250603_172622
 [2025-06-03 18:08:57] Mission: "coml_pnorm_higher_wind" | Bag Directory: rosbag_coml_pnorm_higher_wind_20250603_180857
+[2025-06-03 18:14:47] Mission: "coml_pnorm_low_wind" | Bag Directory: rosbag_coml_pnorm_low_wind_20250603_181447
