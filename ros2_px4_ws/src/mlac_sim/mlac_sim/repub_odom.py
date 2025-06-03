@@ -26,10 +26,10 @@ class OdomRepublisher(Node):
         # Create subscription for mocap or lidar odometry 
         if self.odom_type == "mocap":
             self.pose_sub_topic_name = self.declare_parameter(
-                "~pose_sub_topic_name", "/BD01/world"
+                "~pose_sub_topic_name", "/PX05/world"
             ).value 
             self.twist_sub_topic_name = self.declare_parameter(
-                "~twist_sub_topic_name", "/BD01/mocap/twist"
+                "~twist_sub_topic_name", "/PX05/mocap/twist"
             ).value 
             self._mocap_pose_sub = self.create_subscription(PoseStamped, self.pose_sub_topic_name, self._mocap_pose_cb, 10)
             self._mocap_twist_sub = self.create_subscription(TwistStamped, self.twist_sub_topic_name, self._mocap_twist_cb, 10)

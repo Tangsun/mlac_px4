@@ -65,6 +65,8 @@ def run_tmux_commands(session_name, commands):
             # This will split the (original) bottom-left (0.1) pane vertically.
             subprocess.run(["tmux", "split-window", "-v", "-t", f"{session_name}:0.1"], check=True); time.sleep(0.2)
         # Add more splits here if you have > 7 commands, adjusting targets carefully or using a more programmatic approach.
+        if num_panes > 7: 
+            subprocess.run(["tmux", "split-window", "-h", "-t", f"{session_name}:0.3"], check=True); time.sleep(0.2)
 
         print("Sending commands to panes...")
         for i, command_string in enumerate(commands):
@@ -114,7 +116,7 @@ if __name__ == "__main__":
     timestamp_for_bag_dir = now.strftime("%Y%m%d_%H%M%S")
     bag_directory_name = f"rosbag_{mission_desc_from_arg.replace(' ', '_')}_{timestamp_for_bag_dir}" # Include description in folder name
     
-    base_bag_and_log_path = os.path.join(ros2_ws_path, "rosbag_data")
+    base_bag_and_log_path = os.path.join(ros2_ws_path, "hardware_rosbag")
     full_bag_output_path = os.path.join(base_bag_and_log_path, bag_directory_name) # This is the argument for ros2 bag record -o
     info_log_file_path = os.path.join(base_bag_and_log_path, "missions_log.txt") # General log file
 
@@ -123,7 +125,7 @@ if __name__ == "__main__":
 
     log_mission_details(info_log_file_path, mission_desc_from_arg, bag_directory_name)
 
-    trajectory_file_name = "circle_trajectory_8col_50hz.npy"
+    trajectory_file_name = "circle_r2.0_t30.0s_alt2.0_psi0deg_50hz_11col.npy"
 
     # --- Define Commands for TMUX Panes ---
 
@@ -138,7 +140,11 @@ if __name__ == "__main__":
         f"echo 'Exporting PYTHONPATH with venv site-packages...' && "
         f"export PYTHONPATH=\"{venv_path}/lib/python3.10/site-packages${{PYTHONPATH:+:$PYTHONPATH}}\" && "
         f"echo 'Running mlac_mission_node...' && "
-        f"ros2 run mlac_sim mlac_mission_node --ros-args -p trajectory_file_name:='{trajectory_file_name}'; " # Add any specific params if needed, e.g., --ros-args -p trajectory_file_name:="your_traj.npy"
+        f"ros2 run mlac_sim mlac_mission_node --ros-args \
+            -p trajectory_file_name:='{trajectory_file_name}' \
+            -p position_reached_threshold:='0.3' \
+            -p trajectory_index:={trajectory_index} \
+            -p controller_type:='coml'; "
         f"echo 'mlac_mission_node pane exited.'; exec bash"
     )
 
@@ -196,7 +202,7 @@ if __name__ == "__main__":
         rosbag_command,
 
         # Pane 1: Launch MAVROS
-        f"sleep 5; echo '>>> Launching MAVROS...'; source {ros2_ws_path}/install/setup.bash && ros2 launch mavros px4.launch tgt_system:=11; echo 'MAVROS pane exited.'; exec bash",
+        f"sleep 5; echo '>>> Launching MAVROS...'; source {ros2_ws_path}/install/setup.bash && ros2 launch mavros px4.launch tgt_system:=5; echo 'MAVROS pane exited.'; exec bash",
 
         # Pane 2: Run your mlac_mission_node
         mlac_node_command,
@@ -204,15 +210,22 @@ if __name__ == "__main__":
         # Pane 3: Set MAVLink Stream Rates
         set_stream_rates_command,
 
-        # Pane 4: Record ROS Bag Data
+        # Pane 4: Mocap
         # rosbag_command,
-        f"sleep 20; echo '>>> Launching mocap'; source {ros2_ws_path}/install/setup.bash && ros2 run mlac_sim repub_odom_node; exec bash",
+        f"sleep 5; echo '>>> Launching mocap'; source {ros2_ws_path}/install/setup.bash && ros2 run mlac_sim repub_odom_node; exec bash",
 
         # Pane 5: General command pane for sending mission commands etc.
         command_pane_setup,
         
-        # Pane 6: Launch QGroundControl
-        # f"sleep 35; echo '>>> Launching QGroundControl...'; cd {os.path.dirname(px4_src_path)} && ./QGroundControl.AppImage; echo 'QGC pane exited.'; exec bash", # Assuming QGC is in ~/mlac_px4/
+        # Pane 6: Send mission command
+        f"sleep 15; " 
+        f"echo '>>> Initiating flight sequence...'; "
+        f"source {ros2_ws_path}/install/setup.bash && "
+        f"echo 'Sending START_MISSION command...' && "
+        f"ros2 topic pub --once /mission_control/command std_msgs/msg/String '{{data: \"START_MISSION\"}}' ; exec bash"
+
+        # Pane 7: zenoh
+        f"sleep 10; echo '>>> Launching zenoh'; zenoh_router; exec bash",
     ]
 
     # Filter out any None commands if you conditionally add them (not strictly needed here)
