@@ -150,9 +150,9 @@ if __name__ == "__main__":
 
     session = "mlac_sim_main" 
     
-    ros2_ws_path = os.path.expanduser("~/mlac_px4/ros2_px4_ws")
-    px4_src_path = os.path.expanduser("~/mlac_px4/px4_src/PX4-Autopilot")
-    venv_path = os.path.expanduser("~/mlac_px4/mlac_env")
+    ros2_ws_path = os.path.expanduser("~/mlac_ijrr/mlac_px4/ros2_px4_ws") # Kai's path to the ROS 2 workspace
+    px4_src_path = os.path.expanduser("~/PX4-Autopilot")        # Kai's PX4 source path
+    venv_path = os.path.expanduser("~/mlac_ijrr/mlac_px4/mlac_env") # Kai's virtual environment path
 
     now = datetime.datetime.now()
     timestamp_for_bag_dir = now.strftime("%m%d_%H%M%S")
@@ -247,7 +247,7 @@ if __name__ == "__main__":
         mlac_node_command,  
         set_stream_rates_command, 
         rosbag_command,     
-        f"sleep 15; echo '>>> Launching QGroundControl...'; cd {os.path.dirname(px4_src_path)} && ./QGroundControl.AppImage; echo 'QGC pane exited.'; exec bash", 
+        f"sleep 15; echo '>>> Launching QGroundControl...'; cd {px4_src_path} && ./QGroundControl-x86_64.AppImage; echo 'QGC pane exited.'; exec bash", 
         flight_initiation_command, 
         general_command_pane 
     ]
