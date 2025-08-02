@@ -1,6 +1,6 @@
 #!/bin/bash
 
-source /home/sunbochen/mlac_px4/mlac_env/bin/activate
+source /Users/kaiyun/OneDrive/Documents/32.Azizan_Lab/MLAC/mlac_px4/mlac_env/bin/activate
 
 # Define the arrays of values to loop through
 # Corrected bash array syntax
