@@ -254,6 +254,8 @@ if __name__ == "__main__":
         shuffled_data
     )
 
+    # NOTE: Question - does `ensemble_valid_data` only get used once when doing the initial `update_best_ensemble`???
+
     # Initialize gradient-based optimizer (ADAM)
     learning_rate = hparams['ensemble']['learning_rate']
     batch_size = int(hparams['ensemble']['batch_frac'] * num_train_samples)

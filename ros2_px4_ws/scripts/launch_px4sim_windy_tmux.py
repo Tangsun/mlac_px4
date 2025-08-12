@@ -150,9 +150,9 @@ if __name__ == "__main__":
 
     session = "mlac_sim_main" 
     
-    ros2_ws_path = os.path.expanduser("~/mlac_ijrr/mlac_px4/ros2_px4_ws") # Kai's path to the ROS 2 workspace
-    px4_src_path = os.path.expanduser("~/PX4-Autopilot")        # Kai's PX4 source path
-    venv_path = os.path.expanduser("~/mlac_ijrr/mlac_px4/mlac_env") # Kai's virtual environment path
+    ros2_ws_path = os.path.expanduser("~/mlac_ijrr/mlac_px4/ros2_px4_ws")   # Kai's path to the ROS 2 workspace
+    px4_src_path = os.path.expanduser("~/PX4-Autopilot")                    # Kai's PX4 source path
+    venv_path = os.path.expanduser("~/mlac_ijrr/mlac_px4/mlac_env")         # Kai's virtual environment path
 
     now = datetime.datetime.now()
     timestamp_for_bag_dir = now.strftime("%m%d_%H%M%S")
