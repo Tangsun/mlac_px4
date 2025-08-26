@@ -241,15 +241,18 @@ class YawRotationSanityCheckNode(Node):
                 att_msg.header = Header(stamp=now.to_msg(), frame_id="map") 
                 # att_msg.thrust = float(self.hover_thrust)
                 att_msg.thrust = float(final_thrust)
-                att_msg.orientation = euler_to_quaternion(0.0, 0.0, target_yaw_this_step)
+                # att_msg.orientation = euler_to_quaternion(0.0, 0.0, target_yaw_this_step)
                 att_msg.body_rate.x = 0.0
                 att_msg.body_rate.y = 0.0
-                att_msg.body_rate.z = 0.0
-                att_msg.type_mask = AttitudeTarget.IGNORE_ROLL_RATE | AttitudeTarget.IGNORE_PITCH_RATE | AttitudeTarget.IGNORE_YAW_RATE
+                # att_msg.body_rate.z = 0.0
+                att_msg.body_rate.z = self.yaw_rate_rps  # Set yaw rate to control rotation speed
+                # att_msg.type_mask = AttitudeTarget.IGNORE_ROLL_RATE | AttitudeTarget.IGNORE_PITCH_RATE | AttitudeTarget.IGNORE_YAW_RATE
+                att_msg.type_mask = AttitudeTarget.IGNORE_ATTITUDE
                 self.attitude_setpoint_pub.publish(att_msg)
                 
                 if int(elapsed_time_since_mission_start * 10) % 20 == 0: 
-                    self.get_logger().info(f"STATE: ROTATING_YAW | t={elapsed_time_since_mission_start:.1f}s, Cmd Yaw={math.degrees(target_yaw_this_step):.1f}deg")
+                    # self.get_logger().info(f"STATE: ROTATING_YAW | t={elapsed_time_since_mission_start:.1f}s, Cmd Yaw={math.degrees(target_yaw_this_step):.1f}deg")
+                    self.get_logger().info(f"STATE: ROTATING WITH YAW RATE | t={elapsed_time_since_mission_start:.1f}s, Cmd Yaw={math.degrees(target_yaw_this_step):.1f}deg, Thrust={final_thrust:.2f}")
             else:
                 self.mission_state = MissionState.MISSION_COMPLETE
                 self.get_logger().info(f"STATE: MISSION_COMPLETE - Rotation complete. Holding attitude.")

@@ -49,7 +49,7 @@ desktop.ini
 # Ignore data files
 # processed_data/
 raw_traj_data/
-rosbad_data/
+rosbag_data/
 rosbag_windy/
 # mlac_test/
 ros2_px4_ws/archive
