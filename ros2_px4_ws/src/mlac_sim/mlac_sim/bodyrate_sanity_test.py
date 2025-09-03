@@ -13,6 +13,8 @@ import numpy as np
 import math
 import traceback
 
+from mlac_sim.bodyrate_conversion import BodyRateConverter
+
 """
 Note that a chunk of this code is similar to the `yaw_rotation_test.py` script.
 This is to be changed to use body rate control to check Sunbochen's method.
@@ -65,9 +67,9 @@ def euler_to_quaternion(roll, pitch, yaw):
     qz = cr * cp * sy - sr * sp * cy
     return Quaternion(w=qw, x=qx, y=qy, z=qz)
 
-class YawRotationSanityCheckNode(Node):
+class BodyRateSanityCheckNode(Node):
     def __init__(self):
-        super().__init__('yaw_rotation_sanity_check_node')
+        super().__init__('body_rate_sanity_check_node')
 
         self.declare_parameter('publish_rate_hz', 50.0)
         # self.declare_parameter('hover_thrust', 0.728) 
@@ -76,13 +78,16 @@ class YawRotationSanityCheckNode(Node):
         self.declare_parameter('initial_setpoint_x', 0.0) 
         self.declare_parameter('initial_setpoint_y', 0.0) 
         self.declare_parameter('initial_setpoint_z', 2.0) 
-        self.declare_parameter('hover_calib_duration_sec', 15.0) 
+        self.declare_parameter('hover_calib_duration_sec', 8.0) 
         self.declare_parameter('position_tolerance_m', 0.2) 
 
         # PD control parameters
         self.declare_parameter('kp_z', 0.5) # PD control proportional gain
         self.declare_parameter('kd_z', 0.2) # PD control derivative gain
         self.declare_parameter('hover_thrust', 0.5) # Initial hover thrust
+
+        # Proportional gain for body rate controller
+        self.declare_parameter('bodyrate_kp', 0.5)
 
         self.publish_rate = self.get_parameter('publish_rate_hz').value
         self.hover_thrust = self.get_parameter('hover_thrust').value
@@ -96,6 +101,9 @@ class YawRotationSanityCheckNode(Node):
 
         self.kp_z = self.get_parameter('kp_z').value
         self.kd_z = self.get_parameter('kd_z').value
+
+        self.bodyrate_kp = self.get_parameter('bodyrate_kp').value
+        self.bodyrate_converter = BodyRateConverter(kp=self.bodyrate_kp)
 
         if self.publish_rate <= 0:
             self.get_logger().fatal("publish_rate_hz must be positive.")
@@ -132,7 +140,7 @@ class YawRotationSanityCheckNode(Node):
 
         self.publish_timer = self.create_timer(self.timer_period, self.publish_setpoint_callback)
         
-        self.get_logger().info("Yaw Rotation Sanity Check Node Initialized.")
+        self.get_logger().info("Body Rate Sanity Check Node Initialized.")
 
     def local_pose_callback(self, msg: PoseStamped):
         self.current_local_pose = msg
@@ -241,24 +249,30 @@ class YawRotationSanityCheckNode(Node):
 
                 self.current_yaw_angle += self.yaw_rate_rps * self.timer_period
                 target_yaw_this_step = self.current_yaw_angle
-                
                 target_yaw_this_step = (target_yaw_this_step + math.pi) % (2 * math.pi) - math.pi
+                
+                target_quat = euler_to_quaternion(0.0, 0.0, target_yaw_this_step)
+                current_quat = self.current_local_pose.pose.orientation
+
+                q_current = np.array([current_quat.w, current_quat.x, current_quat.y, current_quat.z])
+                q_desired = np.array([target_quat.w, target_quat.x, target_quat.y, target_quat.z])
+                body_rate_cmd = self.bodyrate_converter.attitude_to_bodyrate(q_current, q_desired)
+                
                 att_msg = AttitudeTarget()
                 att_msg.header = Header(stamp=now.to_msg(), frame_id="map") 
-                # att_msg.thrust = float(self.hover_thrust)
                 att_msg.thrust = float(final_thrust)
-                # att_msg.orientation = euler_to_quaternion(0.0, 0.0, target_yaw_this_step)
-                att_msg.body_rate.x = 0.0
-                att_msg.body_rate.y = 0.0
-                # att_msg.body_rate.z = 0.0
-                att_msg.body_rate.z = self.yaw_rate_rps  # Set yaw rate to control rotation speed
-                # att_msg.type_mask = AttitudeTarget.IGNORE_ROLL_RATE | AttitudeTarget.IGNORE_PITCH_RATE | AttitudeTarget.IGNORE_YAW_RATE
+
+                # print(f"\n\nBODYRATE COMMAND: {body_rate_cmd}\nBODYRATE CMD SHAPE: {body_rate_cmd.shape}\n BODYRATE CMD TYPE: {body_rate_cmd.dtype}\n\n")
+                # raise Exception("Debug stop")
+
+                att_msg.body_rate.x = float(body_rate_cmd[0])
+                att_msg.body_rate.y = float(body_rate_cmd[1])
+                att_msg.body_rate.z = float(body_rate_cmd[2])
                 att_msg.type_mask = AttitudeTarget.IGNORE_ATTITUDE
                 self.attitude_setpoint_pub.publish(att_msg)
                 
                 if int(elapsed_time_since_mission_start * 10) % 20 == 0: 
-                    # self.get_logger().info(f"STATE: ROTATING_YAW | t={elapsed_time_since_mission_start:.1f}s, Cmd Yaw={math.degrees(target_yaw_this_step):.1f}deg")
-                    self.get_logger().info(f"STATE: ROTATING WITH YAW RATE | t={elapsed_time_since_mission_start:.1f}s, Cmd Yaw={math.degrees(target_yaw_this_step):.1f}deg, Thrust={final_thrust:.2f}")
+                    self.get_logger().info(f"STATE: ROTATING WITH OMEGA={body_rate_cmd[0], body_rate_cmd[1], body_rate_cmd[2]} | t={elapsed_time_since_mission_start:.1f}s, Cmd Yaw={math.degrees(target_yaw_this_step):.1f}deg, Thrust={final_thrust:.2f}")
             else:
                 self.mission_state = MissionState.MISSION_COMPLETE
                 self.get_logger().info(f"STATE: MISSION_COMPLETE - Rotation complete. Holding attitude.")
@@ -285,7 +299,7 @@ def main(args=None):
     rclpy.init(args=args)
     node = None
     try:
-        node = YawRotationSanityCheckNode()
+        node = BodyRateSanityCheckNode()
         rclpy.spin(node)
     except KeyboardInterrupt:
         if node: node.get_logger().info("Ctrl+C detected, shutting down sanity check node.")

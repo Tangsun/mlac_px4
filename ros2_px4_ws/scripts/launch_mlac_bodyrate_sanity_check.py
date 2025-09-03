@@ -125,15 +125,16 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        "--use_rate",
-        action="store_true",
-        help="If set, the yaw control will use body rate commands instead of attitude commands."
+        "--bodyrate_kp",
+        type=float,
+        default=0.5, 
+        help="Body rate proportional gain."
     )
 
     args = parser.parse_args()
     mission_desc_from_arg = args.mission_description
     auto_kill_sec = args.auto_kill_duration_sec
-    use_rate = args.use_rate
+    bodyrate_kp = args.bodyrate_kp
 
 
     session = "mlac_sim_main" # Changed session name slightly
@@ -165,8 +166,8 @@ if __name__ == "__main__":
         f"echo 'Exporting PYTHONPATH with venv site-packages...' && "
         f"export PYTHONPATH=\"{venv_path}/lib/python3.10/site-packages${{PYTHONPATH:+:$PYTHONPATH}}\" && "
         f"echo 'Running mlac_mission_node...' && "
-        f"ros2 run mlac_sim yaw_sanity_check --ros-args \
-            -p use_rate:={use_rate} ;"
+        f"ros2 run mlac_sim bodyrate_sanity_check --ros-args \
+            -p bodyrate_kp:={bodyrate_kp} ;"
         f"echo 'mlac_mission_node pane exited.'; exec bash"
     )
 

@@ -75,6 +75,7 @@ setup(
             'mlac_mission_node = mlac_sim.mlac_mission_node:main',
             'repub_odom_node = mlac_sim.repub_odom:main',
             'yaw_sanity_check = mlac_sim.yaw_rotation_test:main',
+            'bodyrate_sanity_check = mlac_sim.bodyrate_sanity_test:main',
         ],
     },
 )

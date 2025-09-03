@@ -70,13 +70,16 @@ class YawRotationSanityCheckNode(Node):
         self.declare_parameter('initial_setpoint_x', 0.0) 
         self.declare_parameter('initial_setpoint_y', 0.0) 
         self.declare_parameter('initial_setpoint_z', 2.0) 
-        self.declare_parameter('hover_calib_duration_sec', 15.0) 
+        self.declare_parameter('hover_calib_duration_sec', 8.0) 
         self.declare_parameter('position_tolerance_m', 0.2) 
 
         # PD control parameters
         self.declare_parameter('kp_z', 0.5) # PD control proportional gain
         self.declare_parameter('kd_z', 0.2) # PD control derivative gain
         self.declare_parameter('hover_thrust', 0.5) # Initial hover thrust
+
+        # New parameter to choose between rate or attitude control for yaw
+        self.declare_parameter('use_rate', True)
 
         self.publish_rate = self.get_parameter('publish_rate_hz').value
         self.hover_thrust = self.get_parameter('hover_thrust').value
@@ -125,6 +128,9 @@ class YawRotationSanityCheckNode(Node):
         self.mission_state = MissionState.WAITING_FOR_OFFBOARD
 
         self.publish_timer = self.create_timer(self.timer_period, self.publish_setpoint_callback)
+
+        self.use_rate = self.get_parameter('use_rate').value
+        print(f"Using {'bodyrate' if self.use_rate else 'attitude'} control for yaw rotation.")
         
         self.get_logger().info("Yaw Rotation Sanity Check Node Initialized.")
 
@@ -224,7 +230,7 @@ class YawRotationSanityCheckNode(Node):
             
             if elapsed_time_since_mission_start <= self.rotation_duration_sec:
                 
-                # PD control for thrust to maintain hover
+                # ------------------ PD control for thrust to maintain hover ----------------- #
                 current_z = self.current_local_pose.pose.position.z
                 error_z = self.initial_setpoint_z - current_z
                 derivative_error_z = (error_z - self.last_error_z) / self.timer_period
@@ -233,26 +239,38 @@ class YawRotationSanityCheckNode(Node):
                 final_thrust = max(0.0, min(1.0, final_thrust))
                 self.last_error_z = error_z
 
+                # ----------------------------- Update yaw angle ----------------------------- #
                 self.current_yaw_angle += self.yaw_rate_rps * self.timer_period
                 target_yaw_this_step = self.current_yaw_angle
-                
                 target_yaw_this_step = (target_yaw_this_step + math.pi) % (2 * math.pi) - math.pi
+                
+                # ----------------------- Publish attitude setpoint -------------------------- #
                 att_msg = AttitudeTarget()
                 att_msg.header = Header(stamp=now.to_msg(), frame_id="map") 
-                # att_msg.thrust = float(self.hover_thrust)
                 att_msg.thrust = float(final_thrust)
-                # att_msg.orientation = euler_to_quaternion(0.0, 0.0, target_yaw_this_step)
-                att_msg.body_rate.x = 0.0
-                att_msg.body_rate.y = 0.0
-                # att_msg.body_rate.z = 0.0
-                att_msg.body_rate.z = self.yaw_rate_rps  # Set yaw rate to control rotation speed
-                # att_msg.type_mask = AttitudeTarget.IGNORE_ROLL_RATE | AttitudeTarget.IGNORE_PITCH_RATE | AttitudeTarget.IGNORE_YAW_RATE
-                att_msg.type_mask = AttitudeTarget.IGNORE_ATTITUDE
+
+                # ----------------------- Use body rate control for yaw ---------------------- #
+                if self.use_rate:
+                    att_msg.body_rate.x = 0.0
+                    att_msg.body_rate.y = 0.0
+                    att_msg.body_rate.z = self.yaw_rate_rps
+                    att_msg.type_mask = AttitudeTarget.IGNORE_ATTITUDE
+                
+                # ----------------------- Use attitude control for yaw ----------------------- #
+                else:               
+                    att_msg.orientation = euler_to_quaternion(0.0, 0.0, target_yaw_this_step)
+                    att_msg.body_rate.x = 0.0
+                    att_msg.body_rate.y = 0.0
+                    att_msg.body_rate.z = 0.0
+                    att_msg.type_mask = AttitudeTarget.IGNORE_ROLL_RATE | AttitudeTarget.IGNORE_PITCH_RATE | AttitudeTarget.IGNORE_YAW_RATE
+
                 self.attitude_setpoint_pub.publish(att_msg)
                 
-                if int(elapsed_time_since_mission_start * 10) % 20 == 0: 
-                    # self.get_logger().info(f"STATE: ROTATING_YAW | t={elapsed_time_since_mission_start:.1f}s, Cmd Yaw={math.degrees(target_yaw_this_step):.1f}deg")
-                    self.get_logger().info(f"STATE: ROTATING WITH YAW RATE | t={elapsed_time_since_mission_start:.1f}s, Cmd Yaw={math.degrees(target_yaw_this_step):.1f}deg, Thrust={final_thrust:.2f}")
+                if int(elapsed_time_since_mission_start * 10) % 20 == 0:
+                    if self.use_rate:
+                        self.get_logger().info(f"STATE: ROTATING WITH YAW RATE {self.yaw_rate_rps} rps | t={elapsed_time_since_mission_start:.1f}s, Cmd Yaw={math.degrees(target_yaw_this_step):.1f}deg, Thrust={final_thrust:.2f}")
+                    else:
+                        self.get_logger().info(f"STATE: ROTATING_YAW | t={elapsed_time_since_mission_start:.1f}s, Cmd Yaw={math.degrees(target_yaw_this_step):.1f}deg, Thrust={final_thrust:.2f}")
             else:
                 self.mission_state = MissionState.MISSION_COMPLETE
                 self.get_logger().info(f"STATE: MISSION_COMPLETE - Rotation complete. Holding attitude.")
@@ -268,7 +286,7 @@ class YawRotationSanityCheckNode(Node):
             att_msg.body_rate.z = 0.0
             att_msg.type_mask = AttitudeTarget.IGNORE_ROLL_RATE | AttitudeTarget.IGNORE_PITCH_RATE | AttitudeTarget.IGNORE_YAW_RATE
             self.attitude_setpoint_pub.publish(att_msg)
-            self.get_logger().info("Mission complete. Holding final attitude.", throttle_duration_sec=5.0)
+            self.get_logger().info("Mission complete. Holding final attitude...\nThis will land the drone slowly.", throttle_duration_sec=5.0)
 
     def destroy_node(self):
         if self.publish_timer is not None:

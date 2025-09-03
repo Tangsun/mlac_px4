@@ -16,3 +16,11 @@
 [2025-08-12 19:17:13] Mission: "test" | Bag Directory: rosbag_0812_191713
 [2025-08-12 19:19:04] Mission: "test" | Bag Directory: rosbag_0812_191904
 [2025-08-12 19:32:10] Mission: "test" | Bag Directory: rosbag_0812_193210
+[2025-09-03 16:21:55] Mission: "test" | Bag Directory: rosbag_0903_162155
+[2025-09-03 16:23:39] Mission: "test" | Bag Directory: rosbag_0903_162339
+[2025-09-03 16:25:22] Mission: "test" | Bag Directory: rosbag_0903_162522
+[2025-09-03 16:53:49] Mission: "br_test" | Bag Directory: rosbag_0903_165349
+[2025-09-03 16:55:32] Mission: "br_test" | Bag Directory: rosbag_0903_165532
+[2025-09-03 16:57:51] Mission: "br_test" | Bag Directory: rosbag_0903_165751
+[2025-09-03 17:01:12] Mission: "br_test" | Bag Directory: rosbag_0903_170112
+[2025-09-03 17:03:48] Mission: "br_test" | Bag Directory: rosbag_0903_170348
