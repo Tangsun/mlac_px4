@@ -13,6 +13,12 @@ import numpy as np
 import math
 import traceback
 
+"""
+Note that a chunk of this code is similar to the `yaw_rotation_test.py` script.
+This is to be changed to use body rate control to check Sunbochen's method.
+           - Kai (09/03/2025)
+"""
+
 # --- Constants for State Machine ---
 class MissionState(Enum):
     """Enumerates the different phases of the mission."""
