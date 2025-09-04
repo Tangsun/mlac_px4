@@ -13,8 +13,14 @@ def main():
     traj_file_path = os.path.join(
         os.path.dirname(script_dir), # up to ros2_px4_ws
         "src", "mlac_sim", "traj_data", 
-        "circle_r2.0_t20.0s_alt2.0_initpsi0deg_50hz_11col.npy"
+        # "circle_r2.0_t15.0s_alt2.0_psi0deg_50hz_11col.npy"   # --> a simple circle, without yaw changes
+        # "figure8_L4.0_W2.0_t10s_alt2.0_initpsi0deg_FORCEZEROPsi_50hz_11col.npy" # --> figure 8 with zero yaw
+        # "setpoint_hold_x0.0_y0.0_z2.0_t20.0s_psi60deg_50hz_11col.npy"   # --> ??? setpoint hold with yaw=60deg
+        # "setpoint_rot_yaw_x0.0_y0.0_z2.0_t20.0s_initpsi0deg_rate15dps_50hz_8col.npy"    # --> setpoint hold with rotating yaw???
+        "N100_T30.0_spline_11col_zero_yaw.npy"
     )
+
+    traj_idx = 22
 
     if not os.path.exists(traj_file_path):
         print(f"Error: Trajectory file not found at: {traj_file_path}")
@@ -50,8 +56,9 @@ def main():
     print(f"Trajectory shape: {trajectory_data.shape}")
 
     if trajectory_data.ndim != 2:
-        print("Error: Trajectory data is not a 2D array.")
-        return
+        print("Trajectory data is not a 2D array.")
+        trajectory_data = trajectory_data[traj_idx]
+        # return
     
     num_points = trajectory_data.shape[0]
     num_cols = trajectory_data.shape[1]

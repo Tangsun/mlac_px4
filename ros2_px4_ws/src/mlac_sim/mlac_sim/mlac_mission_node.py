@@ -21,6 +21,7 @@ from .helpers import (quaternion_array_to_msg, vector_array_to_msg,
                        controllog_class_to_ros_msg, get_rpy)
 from .utils import quaternion_to_rotation_matrix
 from .mlac_fsm import MissionFiniteStateMachine, MissionPhase # Import FSM
+from mlac_sim.bodyrate_conversion import BodyRateConverter
 
 import math
 
@@ -28,10 +29,14 @@ class MlacMissionNode(Node):
     def __init__(self):
         super().__init__('mlac_mission_node')
 
-        # --- Parameter Declarations ---
-        # Existing Parameters
+        # ---------------------------------------------------------------------------- #
+        #                            Parameter Declarations                            #
+        # ---------------------------------------------------------------------------- #
+        # ---------------------------- Existing Parameters --------------------------- #
         self.declare_parameter('controller_type', 'pid', ParameterDescriptor(description="Controller type: 'pid', 'coml', or 'coml_debug'"))
         self.declare_parameter('control_loop_rate_hz', 50.0, ParameterDescriptor(description="Rate of the main control loop"))
+        self.declare_parameter('control_level', 'bodyrate', ParameterDescriptor(description="Control level: 'attitude' or 'bodyrate'"))
+        self.declare_parameter('bodyrate_kp', 0.3, ParameterDescriptor(description="Proportional gain for bodyrate controller (if using 'bodyrate' control level)"))
         self.declare_parameter('trajectory_file_name', 'circle_trajectory_8col_50hz.npy', ParameterDescriptor(description="Name of the .npy trajectory file in 'mlac_sim/traj_data/' folder"))
         self.declare_parameter('trajectory_index', 0, ParameterDescriptor(description="Index of the trajectory to use if the .npy file contains multiple trajectories. Default is 0."))
         # self.declare_parameter('vehicle_mass', 4.562, ParameterDescriptor(description="Vehicle mass (kg)"))
@@ -46,15 +51,15 @@ class MlacMissionNode(Node):
         self.declare_parameter('max_thrust_N', 2.6 * 9.81 / 0.760, ParameterDescriptor(description="Max thrust capability (N)"))
         # self.declare_parameter('max_thrust_N', 2.0 * 9.81 / 0.728, ParameterDescriptor(description="Max thrust capability (N)"))
 
-        # ++ NEW DEBUG PARAMETERS ++
+        # --------------------------- NEW DEBUG PARAMETERS --------------------------- #
         self.declare_parameter('debug_rotating_yaw_active', False, ParameterDescriptor(description="Activate debug mode: hover with rotating yaw, zero feedback."))
         self.declare_parameter('debug_yaw_initial_deg', 0.0, ParameterDescriptor(description="Initial yaw for debug mode (degrees)."))
         self.declare_parameter('debug_yaw_rate_dps', 15.0, ParameterDescriptor(description="Yaw rate for debug mode (degrees/sec)."))
         self.declare_parameter('debug_duration_sec', 20.0, ParameterDescriptor(description="Duration for the debug rotating yaw phase (seconds)."))
         self.declare_parameter('debug_hover_position', [0.0, 0.0, 2.0], ParameterDescriptor(description="Hover position for debug mode [x,y,z] (m). Uses initial_hover_position by default if not overridden."))
-        # ++ END NEW DEBUG PARAMETERS ++
+        # ------------------------- END NEW DEBUG PARAMETERS ------------------------- #
 
-        # New Mission Logic Parameters for FSM
+        # ------------------- New Mission Logic Parameters for FSM ------------------- #
         self.declare_parameter('initial_hover_position', [1.3, -2.8, 1.5], ParameterDescriptor(description="Initial hover position [x, y, z] (m)"))
         self.declare_parameter('final_hover_position', [1.3, -2.8, 1.5], ParameterDescriptor(description="Final hover position [x, y, z] (m)"))
         self.declare_parameter('landing_position', [1.3, -2.8, 0.732], ParameterDescriptor(description="Landing target position [x, y, z] (m), z is target altitude before disarm"))
@@ -63,16 +68,16 @@ class MlacMissionNode(Node):
         self.declare_parameter('landing_descent_rate_mps', 0.3, ParameterDescriptor(description="Descent rate for landing (m/s positive value)"))
         self.declare_parameter('wait_for_offboard_arm_timeout_sec', 30.0, ParameterDescriptor(description="Timeout (seconds) to wait for OFFBOARD and ARM after START command"))
 
-        # ++ GET NEW DEBUG PARAMETERS ++
+        # ------------------------- GET NEW DEBUG PARAMETERS ------------------------- #
         self.debug_mode_active_param = self.get_parameter('debug_rotating_yaw_active').get_parameter_value().bool_value
         self.debug_initial_yaw_deg_param = self.get_parameter('debug_yaw_initial_deg').get_parameter_value().double_value
         self.debug_yaw_rate_dps_param = self.get_parameter('debug_yaw_rate_dps').get_parameter_value().double_value
         self.debug_duration_sec_param = self.get_parameter('debug_duration_sec').get_parameter_value().double_value
         self.debug_hover_pos_param_list = self.get_parameter('debug_hover_position').get_parameter_value().double_array_value
-        # ++ END GET NEW DEBUG PARAMETERS ++
+        # ----------------------- END GET NEW DEBUG PARAMETERS ----------------------- #
 
 
-        # --- Get Parameters ---
+        # ------------------------------ Get Parameters ------------------------------ #
         self.controller_type = self.get_parameter('controller_type').get_parameter_value().string_value
         self.trajectory_file_name = self.get_parameter('trajectory_file_name').get_parameter_value().string_value
         self.trajectory_index = self.get_parameter('trajectory_index').get_parameter_value().integer_value
@@ -91,8 +96,25 @@ class MlacMissionNode(Node):
         self.controller_params.maxVelErr = np.array(self.get_parameter('max_vel_err').get_parameter_value().double_array_value)
 
         self.loaded_trajectory_data: np.ndarray | None = None
+
+        # -------------------------- BodyRate Control (KAI) -------------------------- #
+        self.control_level = self.get_parameter('control_level').get_parameter_value().string_value
+        if self.control_level not in ['attitude', 'bodyrate']:
+            raise ValueError("control_level must be 'attitude' or 'bodyrate'")
+        if self.control_level == 'bodyrate':
+            bodyrate_kp = self.get_parameter('bodyrate_kp').get_parameter_value().double_value
+            if bodyrate_kp <= 0:
+                raise ValueError("bodyrate_kp must be positive.")
+            self.bodyrate_converter = BodyRateConverter(kp=bodyrate_kp)
+            print(f"\n+++++++++++++++++++++++++++++++++++++++++++++\n\
+                    Using 'bodyrate' control level with kp={bodyrate_kp}.\n\
+                    ++++++++++++++++++++++++++++++++++++++++++++++\n")
+        else:
+            print(f"\n+++++++++++++++++++++++++++++++++++++++++++++\n\
+                    Using 'attitude' control level.\n\
+                    ++++++++++++++++++++++++++++++++++++++++++++++\n")
         
-        # --- Node State Variables ---
+        # --------------------------- Node State Variables --------------------------- #
         self.current_vehicle_state_py = StateClass()
         # self.current_goal_py = GoalClass() # Now managed by FSM
         self.is_vehicle_state_received = False
@@ -104,7 +126,7 @@ class MlacMissionNode(Node):
         self.logged_trajectory_start_time_ros: Time | None = None
         self.logged_trajectory_end_time_ros: Time | None = None
 
-        # --- Initialize FSM ---
+        # ------------------------------ Initialize FSM ------------------------------ #
         initial_hover_pos = self.get_parameter('initial_hover_position').get_parameter_value().double_array_value
         final_hover_pos = self.get_parameter('final_hover_position').get_parameter_value().double_array_value
         landing_pos = self.get_parameter('landing_position').get_parameter_value().double_array_value
@@ -365,7 +387,7 @@ class MlacMissionNode(Node):
         att_msg = AttitudeTarget()
         att_msg.header.stamp = current_ros_time.to_msg()
         att_msg.orientation = quaternion_array_to_msg(att_cmd_py.q)
-        att_msg.body_rate = vector_array_to_msg(att_cmd_py.w)
+        # att_msg.body_rate = vector_array_to_msg(att_cmd_py.w)     # NOTE: Not used anyways --- Kai
         
         R_body_to_world_desired = quaternion_to_rotation_matrix(att_cmd_py.q).T
         desired_body_z_axis_in_world = R_body_to_world_desired[:, 2]
@@ -373,11 +395,23 @@ class MlacMissionNode(Node):
         normalized_thrust = np.clip(thrust_force_along_desired_z / self.max_thrust_N, 0.0, 1.0)
         att_msg.thrust = float(normalized_thrust)
         
-        att_msg.type_mask = ( 
-            AttitudeTarget.IGNORE_ROLL_RATE |
-            AttitudeTarget.IGNORE_PITCH_RATE |
-            AttitudeTarget.IGNORE_YAW_RATE 
-        ) # Keep this for now, or adjust based on test results
+        if self.control_level == 'attitude':
+            att_msg.type_mask = ( 
+                AttitudeTarget.IGNORE_ROLL_RATE |
+                AttitudeTarget.IGNORE_PITCH_RATE |
+                AttitudeTarget.IGNORE_YAW_RATE 
+            ) # Keep this for now, or adjust based on test results
+        
+        elif self.control_level == 'bodyrate':  # NOTE (Kai): Convert desired attitude to body rates 
+            att_msg.type_mask = AttitudeTarget.IGNORE_ATTITUDE
+            omega_cmd = self.bodyrate_converter.attitude_to_bodyrate(
+                q_current=self.current_vehicle_state_py.q,
+                q_desired=att_cmd_py.q,
+            )
+            att_msg.body_rate = vector_array_to_msg(omega_cmd)
+        else:
+            raise ValueError(f"Unknown control_level: {self.control_level}")
+            
         self.attitude_setpoint_pub.publish(att_msg)
 
         log_data_py.p_ref = np.copy(current_goal_from_fsm.p)
