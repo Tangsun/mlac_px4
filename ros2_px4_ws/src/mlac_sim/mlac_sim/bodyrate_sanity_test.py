@@ -262,9 +262,6 @@ class BodyRateSanityCheckNode(Node):
                 att_msg.header = Header(stamp=now.to_msg(), frame_id="map") 
                 att_msg.thrust = float(final_thrust)
 
-                # print(f"\n\nBODYRATE COMMAND: {body_rate_cmd}\nBODYRATE CMD SHAPE: {body_rate_cmd.shape}\n BODYRATE CMD TYPE: {body_rate_cmd.dtype}\n\n")
-                # raise Exception("Debug stop")
-
                 att_msg.body_rate.x = float(body_rate_cmd[0])
                 att_msg.body_rate.y = float(body_rate_cmd[1])
                 att_msg.body_rate.z = float(body_rate_cmd[2])

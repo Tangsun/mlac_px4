@@ -2,6 +2,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+import IPython
+
 from mlac_sim.utils import quaternion_to_rotation_matrix, hat, vee
 
 
@@ -26,6 +28,8 @@ class BodyRateConverter:
         # Convert quaternions to rotation matrices
         R_current = quaternion_to_rotation_matrix(q_current)
         R_desired = quaternion_to_rotation_matrix(q_desired)
+
+        # IPython.embed()
 
         # Compute the rotation error
         R_error = 1/2 * (R_desired.T @ R_current - R_current.T @ R_desired)

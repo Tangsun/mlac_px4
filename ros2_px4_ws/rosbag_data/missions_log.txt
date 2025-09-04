@@ -24,3 +24,8 @@
 [2025-09-03 16:57:51] Mission: "br_test" | Bag Directory: rosbag_0903_165751
 [2025-09-03 17:01:12] Mission: "br_test" | Bag Directory: rosbag_0903_170112
 [2025-09-03 17:03:48] Mission: "br_test" | Bag Directory: rosbag_0903_170348
+[2025-09-04 16:55:17] Mission: "br_test" | Bag Directory: rosbag_0904_165517
+[2025-09-04 16:56:37] Mission: "br_test" | Bag Directory: rosbag_0904_165637
+[2025-09-04 17:01:38] Mission: "br_test" | Bag Directory: rosbag_0904_170138
+[2025-09-04 17:04:13] Mission: "br_test" | Bag Directory: rosbag_0904_170413
+[2025-09-04 17:07:34] Mission: "br_test" | Bag Directory: rosbag_0904_170734
