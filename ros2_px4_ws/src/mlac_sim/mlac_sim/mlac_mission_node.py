@@ -35,7 +35,8 @@ class MlacMissionNode(Node):
         self.declare_parameter('trajectory_file_name', 'circle_trajectory_8col_50hz.npy', ParameterDescriptor(description="Name of the .npy trajectory file in 'mlac_sim/traj_data/' folder"))
         self.declare_parameter('trajectory_index', 0, ParameterDescriptor(description="Index of the trajectory to use if the .npy file contains multiple trajectories. Default is 0."))
         # self.declare_parameter('vehicle_mass', 4.562, ParameterDescriptor(description="Vehicle mass (kg)"))
-        self.declare_parameter('vehicle_mass', 2.6, ParameterDescriptor(description="Vehicle mass (kg)"))
+        # self.declare_parameter('vehicle_mass', 2.6, ParameterDescriptor(description="Vehicle mass (kg)"))
+        self.declare_parameter('vehicle_mass', 2.0, ParameterDescriptor(description="Vehicle mass (kg)"))
         # self.declare_parameter('Kp', [2.0, 2.0, 3.0], ParameterDescriptor(description="Proportional gains [Px, Py, Pz]"))
         self.declare_parameter('Kp', [2.0, 2.0, 2.0], ParameterDescriptor(description="Proportional gains [Px, Py, Pz]"))
         self.declare_parameter('Ki', [1.0, 1.0, 1.5], ParameterDescriptor(description="Integral gains [Ix, Iy, Iz]"))
@@ -43,8 +44,8 @@ class MlacMissionNode(Node):
         self.declare_parameter('Kd', [4.0, 4.0, 4.0], ParameterDescriptor(description="Derivative gains [Dx, Dy, Dz]"))
         self.declare_parameter('max_pos_err', [0.5, 0.5, 0.5], ParameterDescriptor(description="Max position error for PID saturation [err_x, err_y, err_z]"))
         self.declare_parameter('max_vel_err', [1.0, 1.0, 1.0], ParameterDescriptor(description="Max velocity error for PID saturation [verr_x, verr_y, verr_z]"))
-        self.declare_parameter('max_thrust_N', 2.6 * 9.81 / 0.760, ParameterDescriptor(description="Max thrust capability (N)"))
-        # self.declare_parameter('max_thrust_N', 2.0 * 9.81 / 0.728, ParameterDescriptor(description="Max thrust capability (N)"))
+        # self.declare_parameter('max_thrust_N', 2.6 * 9.81 / 0.760, ParameterDescriptor(description="Max thrust capability (N)"))
+        self.declare_parameter('max_thrust_N', 2.0 * 9.81 / 0.728, ParameterDescriptor(description="Max thrust capability (N)"))
 
         # ++ NEW DEBUG PARAMETERS ++
         self.declare_parameter('debug_rotating_yaw_active', False, ParameterDescriptor(description="Activate debug mode: hover with rotating yaw, zero feedback."))

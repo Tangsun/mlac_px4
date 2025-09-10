@@ -27,3 +27,5 @@
 [2025-06-03 16:02:06] Mission: "test idle simulation" | Bag Directory: windy_bag_0603_160206
 [2025-06-03 16:04:21] Mission: "test idle simulation" | Bag Directory: windy_bag_0603_160421
 [2025-06-03 16:06:34] Mission: "test idle simulation" | Bag Directory: windy_bag_0603_160634
+[2025-07-28 17:47:00] Mission: "test environment" | Bag Directory: windy_bag_0728_174700
+[2025-07-28 17:59:17] Mission: "test environment" | Bag Directory: windy_bag_0728_175917
