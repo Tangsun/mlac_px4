@@ -14,6 +14,7 @@ import math
 import traceback
 
 from mlac_sim.bodyrate_conversion import BodyRateConverter
+from mlac_sim.bodyrate_LQR import ConstantPositionTracker
 
 """
 Note that a chunk of this code is similar to the `yaw_rotation_test.py` script.
@@ -121,6 +122,8 @@ class BodyRateSanityCheckNode(Node):
         self.attitude_setpoint_pub = self.create_publisher(AttitudeTarget, '/mavros/setpoint_raw/attitude', qos_profile_setpoint)
         # NEW: Publisher for Position Control (for the ascent and hover phase)
         self.position_setpoint_pub = self.create_publisher(PoseStamped, '/mavros/setpoint_position/local', qos_profile_setpoint)
+        # NEW: Publisher for desired attitude
+        self.desired_attitude_pub = self.create_publisher(PoseStamped, '/desired_attitude', qos_profile_setpoint)
 
         self.current_mavros_state = MavrosState()
         self.current_local_pose = None 
@@ -251,13 +254,24 @@ class BodyRateSanityCheckNode(Node):
                 target_yaw_this_step = self.current_yaw_angle
                 target_yaw_this_step = (target_yaw_this_step + math.pi) % (2 * math.pi) - math.pi
                 
+                # ------------------------ Current & Target Attitudes ------------------------ #
                 target_quat = euler_to_quaternion(0.0, 0.0, target_yaw_this_step)
                 current_quat = self.current_local_pose.pose.orientation
 
+                # ------------------------- Desired Attitude Logging ------------------------- #
+                desired_att_log_msg = PoseStamped()
+                desired_att_log_msg.header.stamp = now.to_msg()
+                desired_att_log_msg.header.frame_id = "map"  # Use a consistent frame
+                desired_att_log_msg.pose.orientation = target_quat
+                # We only care about orientation, so position can be zero
+                self.desired_attitude_pub.publish(desired_att_log_msg)
+
+                # ----------- Compute body rate command using the BodyRateConverter ---------- #
                 q_current = np.array([current_quat.w, current_quat.x, current_quat.y, current_quat.z])
                 q_desired = np.array([target_quat.w, target_quat.x, target_quat.y, target_quat.z])
                 body_rate_cmd = self.bodyrate_converter.attitude_to_bodyrate(q_current, q_desired)
                 
+                # -------------------------- Publish Attitude Target ------------------------- #
                 att_msg = AttitudeTarget()
                 att_msg.header = Header(stamp=now.to_msg(), frame_id="map") 
                 att_msg.thrust = float(final_thrust)

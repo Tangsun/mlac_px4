@@ -113,7 +113,6 @@ if __name__ == "__main__":
         help="Name of the .npy trajectory file in 'mlac_sim/traj_data/' folder to be used by mlac_mission_node."
 
     )
-
     parser.add_argument(
         "--trajectory_index",
         type=int,
@@ -121,17 +120,39 @@ if __name__ == "__main__":
         default = 22,
         help="index of the trajectory in the .npy file (if multiple) to be used by mlac_mission_node."
     )
+    parser.add_argument(
+        "--controller_type",
+        type=str,
+        default="pid", 
+        help="Type of controller to be used by mlac_mission_node (e.g., pid, coml, coml_debug)."
+    )
+    parser.add_argument(
+        "--control_level",
+        type=str,
+        default="bodyrate",
+        help="Control level to be used by mlac_mission_node (e.g., attitude, bodyrate)."
+    )
+    parser.add_argument(
+        "--bodyrate_kp",
+        type=float,
+        default=0.0,
+        help="Proportional gains for bodyrate control."
+    )
+
 
     args = parser.parse_args()
     mission_desc_from_arg = args.mission_description
     trajectory_file_name = args.trajectory_file
     trajectory_index = args.trajectory_index
+    controller_type = args.controller_type
+    control_level = args.control_level
+    bodyrate_kp = args.bodyrate_kp
 
     session = "mlac_sim_main" # Changed session name slightly
     
-    ros2_ws_path = os.path.expanduser("~/mlac_px4/ros2_px4_ws")
-    px4_src_path = os.path.expanduser("~/mlac_px4/px4_src/PX4-Autopilot")
-    venv_path = os.path.expanduser("~/mlac_px4/mlac_env")
+    ros2_ws_path = os.path.expanduser("~/mlac_ijrr/mlac_px4/ros2_px4_ws")   # Kai's path to the ROS 2 workspace
+    px4_src_path = os.path.expanduser("~/PX4-Autopilot")                    # Kai's PX4 source path
+    venv_path = os.path.expanduser("~/mlac_ijrr/mlac_px4/mlac_env")         # Kai's virtual environment path
 
     # --- Bagging and Logging Setup ---
     now = datetime.datetime.now()
@@ -160,12 +181,10 @@ if __name__ == "__main__":
         f"echo 'Exporting PYTHONPATH with venv site-packages...' && "
         f"export PYTHONPATH=\"{venv_path}/lib/python3.10/site-packages${{PYTHONPATH:+:$PYTHONPATH}}\" && "
         f"echo 'Running mlac_mission_node...' && "
-        # f"ros2 run mlac_sim mlac_mission_node --ros-args \
-        #     -p debug_rotating_yaw_active:=True \
-        #     -p debug_initial_yaw_deg:=0.0 \
-        #     -p debug_yaw_rate_dps:=30.0 \
-        #     -p debug_duration_sec:=10.0 ; "
         f"ros2 run mlac_sim mlac_mission_node --ros-args \
+            -p controller_type:='{controller_type}' \
+            -p control_level:='{control_level}' \
+            -p bodyrate_kp:={bodyrate_kp} \
             -p trajectory_file_name:={trajectory_file_name} \
             -p trajectory_index:={trajectory_index} ; "
         f"echo 'mlac_mission_node pane exited.'; exec bash"
@@ -239,7 +258,7 @@ if __name__ == "__main__":
         command_pane_setup,
         
         # Pane 6: Launch QGroundControl
-        f"sleep 15; echo '>>> Launching QGroundControl...'; cd {os.path.dirname(px4_src_path)} && ./QGroundControl.AppImage; echo 'QGC pane exited.'; exec bash", # Assuming QGC is in ~/mlac_px4/
+        f"sleep 15; echo '>>> Launching QGroundControl...'; cd {px4_src_path} && ./QGroundControl-x86_64.AppImage; echo 'QGC pane exited.'; exec bash", # Assuming QGC is in ~/mlac_px4/
     ]
 
     # Filter out any None commands if you conditionally add them (not strictly needed here)

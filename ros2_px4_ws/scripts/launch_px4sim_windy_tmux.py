@@ -120,7 +120,8 @@ if __name__ == "__main__":
         "--trajectory_file",
         type=str,
         # default = "N100_T30.0_spline_11col_zero_yaw.npy",
-        default="figure8_L4.0_W2.0_t10s_alt2.0_initpsi0deg_FORCEZEROPsi_50hz_11col.npy",
+        # default="figure8_L4.0_W2.0_t10s_alt2.0_initpsi0deg_FORCEZEROPsi_50hz_11col.npy",
+        default="setpoint_rot_yaw_x0.0_y0.0_z2.0_t20.0s_initpsi0deg_rate15dps_50hz_8col.npy",
         help="Name of the .npy trajectory file in 'mlac_sim/traj_data/' folder to be used by mlac_mission_node."
     )
     parser.add_argument(
@@ -150,7 +151,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--world_name",
         type=str,
-        default="windy_test", 
+        default="default", 
         help="Name of the Gazebo world file (e.g., windy_test, default) to be used by PX4 SITL."
     )
     parser.add_argument(
