@@ -154,8 +154,8 @@ class PIDOuterLoop:
         a_fb_calculated = self.params_.Kp * e_clamped \
                         + self.params_.Ki * eint \
                         + self.params_.Kd * edot_clamped
-        # F_W = a_fb_calculated + self.params_.mass * (goal.a - self.GRAVITY)     # NOTE(KAI): `goal.a` seems to be zero (09/10/2025)
-        F_W = self.params_.mass * (a_fb_calculated + goal.a - self.GRAVITY)     
+        F_W = a_fb_calculated + self.params_.mass * (goal.a - self.GRAVITY)     # NOTE(KAI): `goal.a` seems to be zero (09/10/2025)
+        # F_W = self.params_.mass * (a_fb_calculated + goal.a - self.GRAVITY)     
         self.log_.p_err_int = eint # Log PID integral term
         self.log_.a_fb = a_fb_calculated
 

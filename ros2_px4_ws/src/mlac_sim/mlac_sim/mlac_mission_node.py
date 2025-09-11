@@ -49,8 +49,8 @@ class MlacMissionNode(Node):
         # self.declare_parameter('Kd', [4.0, 4.0, 4.0], ParameterDescriptor(description="Derivative gains [Dx, Dy, Dz]"))
 
         # ------------------------------- KAI's tuning ------------------------------- #
-        self.declare_parameter('Kp', [0.5, 0.5, 0.8], ParameterDescriptor(description="Proportional gains [Px, Py, Pz]"))
-        self.declare_parameter('Ki', [0.001, 0.001, 0.01], ParameterDescriptor(description="Integral gains [Ix, Iy, Iz]"))
+        self.declare_parameter('Kp', [0.3, 0.3, 0.6], ParameterDescriptor(description="Proportional gains [Px, Py, Pz]"))
+        self.declare_parameter('Ki', [0.001, 0.001, 0.05], ParameterDescriptor(description="Integral gains [Ix, Iy, Iz]"))
         # self.declare_parameter('Ki', [0.00, 0.00, 0.00], ParameterDescriptor(description="Integral gains [Ix, Iy, Iz]"))
         self.declare_parameter('Kd', [0.045, 0.045, 0.4], ParameterDescriptor(description="Derivative gains [Dx, Dy, Dz]"))
         # ----------------------------- down to here ... ----------------------------- #
