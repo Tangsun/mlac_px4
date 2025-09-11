@@ -15,8 +15,8 @@ def main():
         "src", "mlac_sim", "traj_data", 
         # "circle_r2.0_t15.0s_alt2.0_psi0deg_50hz_11col.npy"   # --> a simple circle, without yaw changes
         # "figure8_L4.0_W2.0_t10s_alt2.0_initpsi0deg_FORCEZEROPsi_50hz_11col.npy" # --> figure 8 with zero yaw
-        # "setpoint_hold_x0.0_y0.0_z2.0_t20.0s_psi60deg_50hz_11col.npy"   # --> ??? setpoint hold with yaw=60deg
-        "setpoint_rot_yaw_x0.0_y0.0_z2.0_t20.0s_initpsi0deg_rate15dps_50hz_8col.npy"    # --> setpoint hold with rotating yaw???
+        "setpoint_hold_x0.0_y0.0_z2.0_t20.0s_psi60deg_50hz_11col.npy"   # --> ??? setpoint hold with yaw=60deg
+        # "setpoint_rot_yaw_x0.0_y0.0_z2.0_t20.0s_initpsi0deg_rate15dps_50hz_8col.npy"    # --> setpoint hold with rotating yaw???
         # "N100_T30.0_spline_11col_zero_yaw.npy"
     )
 

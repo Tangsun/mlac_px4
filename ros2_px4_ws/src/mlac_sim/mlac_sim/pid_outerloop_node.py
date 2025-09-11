@@ -36,53 +36,6 @@ class PIDOuterLoop:
         if self.controller != 'pid':
             raise NotImplementedError("Only 'pid' controller is implemented in this OuterLoop class.")
 
-        # -------------------------- COML Code (not for PID) ------------------------- #
-        # if self.controller == 'coml':
-        #     package_share_path = get_package_share_directory(self.package_name)
-        #     # Cleaned up small model files
-        #     # trial_name = 'pnorm_models'
-        #     # filename = 'test.pkl'
-
-        #     trial_name = '2norm_models'
-        #     filename = 'test.pkl'
-
-        #     model_dir = os.path.join(package_share_path, 'onboard_models', trial_name)
-
-        #     # pnorm trial
-        #     # trial_name = 'pnorm_models/run_3_lambda_0.008_k_0.004_pfreq_20_pnorm_2.0'
-        #     # filename = 'E=1000_pinit=2.00_pfreq=20_regP=1.0000_regL=0.0080_regK=0.0040_zw=1.50_regkR=0.0001.pkl'
-
-        #     # 2norm trial
-        #     # trial_name = 'test_L_K_kR_reg'
-        #     # filename = 'E=1000_pinit=2.00_pfreq=2000_regP=1.0000_regL=0.0200_regK=0.0100_zw=1.80_regkR=0.0001.pkl'
-        #     # model_dir = os.path.join(package_share_path, 'models', trial_name)
-        #     model_pkl_loc = os.path.join(model_dir, filename)
-        #     try:
-        #         with open(model_pkl_loc, 'rb') as f:
-        #             train_results = pickle.load(f)
-        #         print(f'COML model loaded from: {model_pkl_loc}')
-        #     except FileNotFoundError:
-        #         print(f"ERROR: COML model file not found at {model_pkl_loc}")
-        #         raise 
-        #     self.pnorm = convert_p_qbar(train_results['pnorm'])
-        #     self.W = train_results['model']['W']
-        #     self.b = train_results['model']['b']
-        #     # self.Λ = params_to_posdef(train_results['controller']['Λ'])
-        #     # self.K = params_to_posdef(train_results['controller']['K'])
-        #     self.P = params_to_posdef(train_results['controller']['P'])
-        #     # debug gains
-        #     self.Λ = 1 * np.diag([1.0, 1.0, 1.5])  # Ensure Λ is a diagonal matrix
-        #     self.K = 1.0 * 2 * np.diag([1.0, 1.0, 1.5])  # Ensure K is a diagonal matrix
-        # elif self.controller == 'coml_debug':
-        #     print('COML debug model: no model is loaded!')
-        #     self.pnorm = convert_p_qbar(2.0)
-        #     self.W = None
-        #     self.b = None
-        #     self.Λ = np.eye(3)
-        #     self.K = np.eye(3)
-        #     self.P = np.eye(3)
-        # -------------------------- COML Code (not for PID) ------------------------- #
-        
         self.params_ = params
         self.GRAVITY = np.array([0.0, 0.0, -9.80665]) 
 
@@ -101,19 +54,6 @@ class PIDOuterLoop:
         self.reset(state0, goal0)
 
     def reset(self, state0, goal0):
-        # -------------------------- COML Code (not for PID) ------------------------- #
-        # if self.controller == 'coml':
-        #     q0 = state0.p
-        #     dq0 = state0.v
-        #     R_flatten0 = quaternion_to_rotation_matrix(state0.q).flatten()
-        #     Omega0 = state0.w
-        #     r0 = goal0.p
-        #     dr0 = goal0.v
-            
-        #     self.dA_prev, y0 = self.adaptation_law(q0, dq0, R_flatten0, Omega0, r0, dr0)
-        #     self.pA_prev = np.zeros((q0.size, y0.size))
-        # -------------------------- COML Code (not for PID) ------------------------- #
-            
         self.Ix_.reset()
         self.Iy_.reset()
         self.Iz_.reset()
@@ -151,38 +91,8 @@ class PIDOuterLoop:
         
         f_hat = np.zeros(3) 
 
-        # -------------------------- COML Code (not for PID) ------------------------- #
-        # if self.controller == 'coml':
-        #     qn = 1.1 + self.pnorm**2
-        #     R_flatten = quaternion_to_rotation_matrix(state.q).flatten()
-        #     dA, y = self.adaptation_law(state.p, state.v, R_flatten, state.w, goal.p, goal.v)
-            
-        #     if not hasattr(self, 'pA_prev') or not hasattr(self, 'dA_prev'):
-        #          print("CRITICAL WARNING: pA_prev or dA_prev not initialized in COML. Reset might not have run correctly.")
-        #          self.dA_prev, y0_init = self.adaptation_law(state.p, state.v, R_flatten, state.w, goal.p, goal.v)
-        #          self.pA_prev = np.zeros((state.p.size, y0_init.size))
-        #          dA = self.dA_prev 
-
-        #     pA = self.pA_prev + (dt/2.0)*(self.dA_prev + dA) 
-            
-        #     current_P_matrix = self.P 
-        #     A_adapt = (np.maximum(np.abs(pA), 1e-6 * np.ones_like(pA))**(qn-1) * np.sign(pA) * (np.ones_like(pA) - np.isclose(pA, 0.0, atol=1e-6)) 
-        #               ) @ current_P_matrix
-        #     f_hat = A_adapt @ y
-
-        #     self.log_.P_norm = np.linalg.norm(current_P_matrix)
-        #     self.log_.A_norm = np.linalg.norm(A_adapt)
-        #     self.log_.y_norm = np.linalg.norm(y)
-        #     self.log_.f_hat = f_hat
-
-        #     self.pA_prev = pA
-        #     self.dA_prev = dA
-        # -------------------------- COML Code (not for PID) ------------------------- #
-        
-        
         F_W = self.get_force(dt, state, goal, f_hat)
         q_ref = self.get_attitude(state, goal, F_W)
-        
         w_ref = self.get_rates(dt, state, goal, F_W, self.log_.a_fb, q_ref)
 
         cmd = AttCmdClass()
@@ -194,26 +104,6 @@ class PIDOuterLoop:
         self.last_computed_w_ref_ = w_ref
         self.last_computed_F_W_ = F_W
         return cmd
-
-    # -------------------------- COML Code (not for PID) ------------------------- #
-    # def adaptation_law(self, q, dq, R_flatten, Omega, r, dr):
-    #     y = np.concatenate((q, dq, R_flatten, Omega))
-    #     if self.W is not None and self.b is not None: 
-    #         for W_layer, b_layer in zip(self.W, self.b): 
-    #             y = np.tanh(W_layer@y + b_layer)
-
-    #     current_Lambda = self.Λ 
-    #     current_P_adapt_law = self.P 
-
-    #     if current_Lambda is None or current_P_adapt_law is None: 
-    #         current_Lambda = np.eye(q.size)
-    #         current_P_adapt_law = np.eye(y.size)
-
-    #     e, de = q - r, dq - dr
-    #     s = de + current_Lambda@e
-    #     dA = np.outer(s, y) @ current_P_adapt_law
-    #     return dA, y
-    # -------------------------- COML Code (not for PID) ------------------------- #
 
     def get_force(self, dt, state, goal, f_hat):
         # Assuming state.t is available for logging, if not, pass 't' as an argument
@@ -240,87 +130,43 @@ class PIDOuterLoop:
             if 'coml' in self.controller:
                 self.log_.f_hat = np.zeros(3) # Effective f_hat is zero for this F_W calc
         
-        # -------------------------- COML Code (not for PID) ------------------------- #
-        # elif self.controller == 'coml':
-        #     # ... (your existing COML F_W calculation) ...
-        #     # Make sure to use goal.a (which will be zero for this debug mode)
-        #     e_c, edot_c = -e, -edot
+        else:
+            # ---------------------------------------------------------------------------- #
+            #                                PID Controller                                #
+            # ---------------------------------------------------------------------------- #
+            e_clamped = np.minimum(np.maximum(e, -self.params_.maxPosErr), self.params_.maxPosErr)      # maxPosErr is [0.5, 0.5, 0.5] by default
+            edot_clamped = np.minimum(np.maximum(edot, -self.params_.maxVelErr), self.params_.maxVelErr)    # maxVelErr is [1.0, 1.0, 1.0] by default
 
-        #     # debug gains
-        #     # current_Lambda = 1 * np.diag([1.0, 1.0, 1.5])
-        #     # # current_Lambda = np.eye(3)
-        #     # current_K_feedback = 3 * np.diag([1.0, 1.0, 1.5])
-
-        #     # Use the loaded model parameters
-        #     current_Lambda = self.Λ
-        #     current_K_feedback = self.K
-
-        #     s = edot_c + current_Lambda@e_c
-        #     v_ref_terms, dv_ref_terms = goal.v - current_Lambda@e_c, goal.a - current_Lambda@edot_c # Use goal.a
-        #     H, C, g_dyn, B = prior(state.p, state.v) 
-        #     τ = H@dv_ref_terms + C@v_ref_terms + g_dyn - f_hat - current_K_feedback@s
-        #     F_W = np.linalg.solve(B, τ)
-        #     # For logging a_fb_calculated if needed:
-        #     try:
-        #         H_inv = np.linalg.inv(H)
-        #         a_fb_calculated_coml = H_inv @ (-current_K_feedback @ s - f_hat) # This is part of the τ that leads to F_W
-        #         self.log_.a_fb = a_fb_calculated_coml
-        #     except np.linalg.LinAlgError:
-        #         self.log_.a_fb = np.zeros(3)
-        #     self.log_.f_hat = f_hat
-        
-        # elif self.controller  == 'coml_debug':
-        #     # ... (your existing COML_DEBUG F_W calculation, ensure it uses goal.a) ...
-        #     # Note that main script e, edot is defined as goal - actual
-        #     # Let's use e_c and edot_c for corrected terms
-        #     e_c, edot_c = -e, -edot
-
-        #     current_Lambda = np.diag([2.5, 1.0, 1.0])  # Debug mode Lambda, adjust as needed
-        #     current_K_feedback = 2 * np.eye(3)  # Assuming identity for debug mode, adjust as needed
-            
-        #     s = edot_c + current_Lambda@e_c
-        #     v_ref_terms, dv_ref_terms = goal.v - current_Lambda@e_c, goal.a - current_Lambda@edot_c
-        #     H, C, g_dyn, B = prior(state.p, state.v)
-        #     τ = H@dv_ref_terms + C@v_ref_terms + g_dyn - current_K_feedback@s 
-        #     F_W = np.linalg.solve(B, τ)
-        #     try:
-        #         H_inv = np.linalg.inv(H)
-        #         a_fb_calculated_coml_debug = H_inv @ (-current_K_feedback @ s)
-        #         self.log_.a_fb = a_fb_calculated_coml_debug
-        #     except np.linalg.LinAlgError:
-        #         self.log_.a_fb = np.zeros(3)
-        # -------------------------- COML Code (not for PID) ------------------------- #
-
-        else: # PID controller
-            # ... (your existing PID logic to calculate a_fb_calculated) ...
-            # e = goal.p - state.p # Already calculated above
-            # edot = goal.v - state.v
-            e_clamped = np.minimum(np.maximum(e, -self.params_.maxPosErr), self.params_.maxPosErr)
-            edot_clamped = np.minimum(np.maximum(edot, -self.params_.maxVelErr), self.params_.maxVelErr)
-
+            # ----------- Check the mode changes to reset integrators if needed ---------- #
             if goal.mode_xy != self.mode_xy_last_:
                 self.Ix_.reset(); self.Iy_.reset()
                 self.mode_xy_last_ = goal.mode_xy
             if goal.mode_z != self.mode_z_last_:
                 self.Iz_.reset()
                 self.mode_z_last_ = goal.mode_z
-
+            
+            # ---------------------- PID Integral logic for XY mode ---------------------- #
             if goal.mode_xy == GoalClass.Mode.POS_CTRL:
                 self.Ix_.increment(e_clamped[0], dt); self.Iy_.increment(e_clamped[1], dt)
             # ... (rest of PID integral logic as before) ...
             elif goal.mode_xy == GoalClass.Mode.VEL_CTRL: e_clamped[0] = e_clamped[1] = 0.0 
             elif goal.mode_xy == GoalClass.Mode.ACC_CTRL: e_clamped[0] = e_clamped[1] = 0.0; edot_clamped[0] = edot_clamped[1] = 0.0
+            # ---------------------- PID Integral logic for Z mode ----------------------- #
             if goal.mode_z == GoalClass.Mode.POS_CTRL: self.Iz_.increment(e_clamped[2], dt)
             elif goal.mode_z == GoalClass.Mode.VEL_CTRL: e_clamped[2] = 0.0
             elif goal.mode_z == GoalClass.Mode.ACC_CTRL: e_clamped[2] = 0.0; edot_clamped[2] = 0.0
 
             eint = np.array([self.Ix_.value(), self.Iy_.value(), self.Iz_.value()])
-            a_fb_calculated = self.params_.Kp * e_clamped + self.params_.Ki * eint + self.params_.Kd * edot_clamped
-            F_W = self.params_.mass * (goal.a + a_fb_calculated - self.GRAVITY) # Use goal.a
+
+            # ----------------------------- MAIN PID formula ----------------------------- #
+            a_fb_calculated = self.params_.Kp * e_clamped \
+                            + self.params_.Ki * eint \
+                            + self.params_.Kd * edot_clamped
+            F_W = a_fb_calculated + self.params_.mass * (goal.a - self.GRAVITY)     # NOTE(KAI): `goal.a` seems to be zero (09/10/2025)
             self.log_.p_err_int = eint # Log PID integral term
             self.log_.a_fb = a_fb_calculated
 
-        # Common logging after F_W is determined for all cases
+        # ----------- Common logging after F_W is determined for all cases ----------- #
         self.log_.p = state.p
         self.log_.p_ref = goal.p
         self.log_.p_err = e # This is actual error, not necessarily what drove F_W if in debug mode
@@ -334,45 +180,6 @@ class PIDOuterLoop:
         logger_fn(f"get_force FINAL @ t={current_time_for_log:.3f}: F_W_cmd={F_W}, P_err_x={e[0]:.3f}, V_err_x={edot[0]:.3f}, A_fb_x={self.log_.a_fb[0]:.3f}")
         return F_W
 
-
-    def get_attitude_quaternion(self, state, goal, F_W):
-        norm_F_W = np.linalg.norm(F_W)
-        
-        q_ref_calculated = np.array([np.cos(goal.psi / 2.0), 0.0, 0.0, np.sin(goal.psi / 2.0)])
-
-        if norm_F_W >= 1e-6: # Only calculate from F_W if force is significant
-            xi = F_W / self.params_.mass
-            abc = xi / norm_F_W # This is xi / ||xi|| because norm_F_W = ||xi|| * mass, so this is wrong.
-                                # Correct: abc = xi / np.linalg.norm(xi)
-            
-            # Re-calculate abc correctly
-            norm_xi_val = np.linalg.norm(xi)
-            if norm_xi_val < 1e-9: # If xi is zero, abc cannot be calculated from it
-                 # q_ref_calculated remains the default (level attitude)
-                 pass
-            else:
-                abc = xi / norm_xi_val
-                a, b, c = abc
-                psi = goal.psi
-
-                val_for_sqrt = 2 * (1 + c)
-                if val_for_sqrt < 1e-9: 
-                    # q_ref_calculated remains the default
-                    # print(f"Warning: c is close to -1 (value: {c}), problematic for invsqrt21pc. Using default q_ref.")
-                    pass
-                else:
-                    invsqrt21pc = 1 / np.sqrt(val_for_sqrt)
-                    quaternion0 = np.array([invsqrt21pc*(1+c), invsqrt21pc*(-b), invsqrt21pc*a, 0.0])
-                    quaternion1 = np.array([np.cos(psi/2.0), 0.0, 0.0, np.sin(psi/2.0)]) 
-                    q_ref_calculated = quaternion_multiply(quaternion0, quaternion1)
-        # else: q_ref_calculated remains the default level attitude
-
-        q_ref_final = q_ref_calculated # It should be normalized by now or is a unit quaternion
-            
-        self.log_.q = state.q
-        self.log_.q_ref = q_ref_final
-        return q_ref_final
-    
     def get_attitude(self, state, goal, F_W):
         F_W_norm = np.linalg.norm(F_W)
         if F_W_norm < 1e-8: 
@@ -387,6 +194,7 @@ class PIDOuterLoop:
             b_1d /= np.linalg.norm(b_1d)
 
             R_d = np.column_stack((b_1d, b_2d, b_3d))
+
             flat_Rd = R_d.flatten()
 
             q_ref = flat_rotation_matrix_to_quaternion(flat_Rd)
