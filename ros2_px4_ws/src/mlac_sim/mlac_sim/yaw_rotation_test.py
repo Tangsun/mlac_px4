@@ -105,6 +105,7 @@ class YawRotationSanityCheckNode(Node):
 
         self.state_sub = self.create_subscription(MavrosState, '/mavros/state', self.mavros_state_callback, qos_profile_state)
         self.local_pose_sub = self.create_subscription(PoseStamped, '/mavros/local_position/pose', self.local_pose_callback, qos_profile_setpoint)
+        self.thrust_sub = self.create_subscription(AttitudeTarget, '/mavros/setpoint_raw/target_attitude', self.thrust_callback, qos_profile_setpoint)
 
         # Publisher for Attitude Control (for the rotation phase)
         self.attitude_setpoint_pub = self.create_publisher(AttitudeTarget, '/mavros/setpoint_raw/attitude', qos_profile_setpoint)
@@ -141,6 +142,9 @@ class YawRotationSanityCheckNode(Node):
             if self.current_mavros_state.connected and not self.setpoint_streaming_active:
                 self.get_logger().info("MAVROS connected and pose received. Starting position setpoint streaming.")
                 self.setpoint_streaming_active = True 
+
+    def thrust_callback(self, msg: AttitudeTarget):
+        self.thrust_sub.thrust = msg.thrust
 
     def mavros_state_callback(self, msg: MavrosState):
         if not msg.connected and self.current_mavros_state.connected:
@@ -193,7 +197,8 @@ class YawRotationSanityCheckNode(Node):
             pos_msg.pose.orientation = euler_to_quaternion(0.0, 0.0, 0.0)
             self.position_setpoint_pub.publish(pos_msg)
             self.get_logger().info(f"STATE: POSITION_HOLD_ASCEND - Sending position setpoint ({self.initial_setpoint_x}, {self.initial_setpoint_y}, {self.initial_setpoint_z})", throttle_duration_sec=2.0)
-            
+            curr_thrust = self.thrust_sub.thrust
+            print(f"Current thrust: {curr_thrust}")
             if self.current_local_pose:
                 current_pos = self.current_local_pose.pose.position
                 dist_to_target = math.sqrt(

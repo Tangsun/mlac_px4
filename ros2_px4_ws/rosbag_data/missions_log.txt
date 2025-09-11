@@ -39,3 +39,7 @@
 [2025-09-04 20:05:58] Mission: "test_br" | Bag Directory: rosbag_0904_200558
 [2025-09-04 20:07:50] Mission: "test_br" | Bag Directory: rosbag_0904_200750
 [2025-09-04 20:09:08] Mission: "test_br" | Bag Directory: rosbag_0904_200908
+[2025-09-11 00:05:16] Mission: "test" | Bag Directory: rosbag_0911_000516
+[2025-09-11 00:06:57] Mission: "test" | Bag Directory: rosbag_0911_000657
+[2025-09-11 00:12:43] Mission: "test" | Bag Directory: rosbag_0911_001243
+[2025-09-11 00:15:10] Mission: "test" | Bag Directory: rosbag_0911_001510

@@ -98,6 +98,9 @@ def run_tmux_commands(session_name, commands, auto_kill_duration_sec=0):
             print("The script will now attempt to attach automatically.")
             os.execvp("tmux", ["tmux", "attach-session", "-t", session_name])
 
+    except KeyboardInterrupt:
+        # This block is triggered by Ctrl+C
+        print("\nCtrl+C detected! Initiating shutdown of TMUX session.")
     except subprocess.CalledProcessError as e:
         print(f"Error setting up TMUX session: {e}")
         print(f"  To clean up a failed new session, try: tmux kill-session -t {session_name}")
@@ -105,6 +108,31 @@ def run_tmux_commands(session_name, commands, auto_kill_duration_sec=0):
         print("Error: 'tmux' command not found. Is tmux installed and in your PATH?")
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
+
+     
+    finally:
+        # === CLEANUP PHASE ===
+        # This block runs ALWAYS: on normal exit, on Ctrl+C, or on error.
+        print(f"\n--- Cleaning up TMUX session '{session_name}' ---")
+        # Check if the session still exists before trying to kill it.
+        check_cmd = ["tmux", "has-session", "-t", session_name]
+        session_exists = subprocess.run(check_cmd).returncode == 0
+        if session_exists:
+            print(f"Session '{session_name}' found. Sending kill command...")
+            try:
+                # First, try a graceful shutdown by sending Ctrl+C to all panes
+                for i in range(len(commands)):
+                    target_pane = f"{session_name}:0.{i}"
+                    subprocess.run(["tmux", "send-keys", "-t", target_pane, "C-c"], check=False)
+                time.sleep(1) # Give processes a moment to react
+
+                # Finally, kill the session forcefully
+                subprocess.run(["tmux", "kill-session", "-t", session_name], check=True, capture_output=True)
+                print(f"Session '{session_name}' successfully killed.")
+            except subprocess.CalledProcessError as e_kill:
+                print(f"Note: Could not kill session '{session_name}' cleanly, it may have already been closed. Error: {e_kill.stderr.decode().strip()}")
+        else:
+            print(f"Session '{session_name}' no longer exists. No cleanup needed.")
 
 
 if __name__ == "__main__":

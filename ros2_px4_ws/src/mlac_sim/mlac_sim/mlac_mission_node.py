@@ -12,6 +12,7 @@ from mavros_msgs.msg import AttitudeTarget, State as MavrosState
 from geometry_msgs.msg import PoseStamped, TwistStamped
 from std_msgs.msg import String as StringMsg
 from std_msgs.msg import Bool as BoolMsg
+from std_msgs.msg import Header
 
 from mlac_msgs.msg import ControllerLog as ControllerLogMsg
 
@@ -42,16 +43,22 @@ class MlacMissionNode(Node):
         self.declare_parameter('trajectory_index', 0, ParameterDescriptor(description="Index of the trajectory to use if the .npy file contains multiple trajectories. Default is 0."))
         # self.declare_parameter('vehicle_mass', 4.562, ParameterDescriptor(description="Vehicle mass (kg)"))
         self.declare_parameter('vehicle_mass', 2.6, ParameterDescriptor(description="Vehicle mass (kg)"))
+
         # self.declare_parameter('Kp', [2.0, 2.0, 2.0], ParameterDescriptor(description="Proportional gains [Px, Py, Pz]"))
         # self.declare_parameter('Ki', [1.0, 1.0, 1.5], ParameterDescriptor(description="Integral gains [Ix, Iy, Iz]"))
         # self.declare_parameter('Kd', [4.0, 4.0, 4.0], ParameterDescriptor(description="Derivative gains [Dx, Dy, Dz]"))
-        self.declare_parameter('Kp', [0.5, 0.5, 0.5], ParameterDescriptor(description="Proportional gains [Px, Py, Pz]"))
-        self.declare_parameter('Ki', [0.0, 0.0, 0.0], ParameterDescriptor(description="Integral gains [Ix, Iy, Iz]"))
-        self.declare_parameter('Kd', [0.2, 0.2, 0.2], ParameterDescriptor(description="Derivative gains [Dx, Dy, Dz]"))
+
+        # ------------------------------- KAI's tuning ------------------------------- #
+        self.declare_parameter('Kp', [0.5, 0.5, 0.8], ParameterDescriptor(description="Proportional gains [Px, Py, Pz]"))
+        self.declare_parameter('Ki', [0.001, 0.001, 0.01], ParameterDescriptor(description="Integral gains [Ix, Iy, Iz]"))
+        # self.declare_parameter('Ki', [0.00, 0.00, 0.00], ParameterDescriptor(description="Integral gains [Ix, Iy, Iz]"))
+        self.declare_parameter('Kd', [0.045, 0.045, 0.4], ParameterDescriptor(description="Derivative gains [Dx, Dy, Dz]"))
+        # ----------------------------- down to here ... ----------------------------- #
+
         self.declare_parameter('max_pos_err', [0.5, 0.5, 0.5], ParameterDescriptor(description="Max position error for PID saturation [err_x, err_y, err_z]"))
         self.declare_parameter('max_vel_err', [1.0, 1.0, 1.0], ParameterDescriptor(description="Max velocity error for PID saturation [verr_x, verr_y, verr_z]"))
-        self.declare_parameter('max_thrust_N', 2.6 * 9.81 / 0.760, ParameterDescriptor(description="Max thrust capability (N)"))
-        # self.declare_parameter('max_thrust_N', 2.0 * 9.81 / 0.728, ParameterDescriptor(description="Max thrust capability (N)"))
+        # self.declare_parameter('max_thrust_N', 2.6 * 9.81 / 0.760, ParameterDescriptor(description="Max thrust capability (N)"))
+        self.declare_parameter('max_thrust_N', 2.6 * 9.81, ParameterDescriptor(description="Max thrust capability (N)"))    # NOTE(KAI): adjust max thrust with the hover thrust retrieved from position control
 
         # --------------------------- NEW DEBUG PARAMETERS --------------------------- #
         self.declare_parameter('debug_rotating_yaw_active', False, ParameterDescriptor(description="Activate debug mode: hover with rotating yaw, zero feedback."))
@@ -66,7 +73,7 @@ class MlacMissionNode(Node):
         self.declare_parameter('final_hover_position', [1.3, -2.8, 1.5], ParameterDescriptor(description="Final hover position [x, y, z] (m)"))
         self.declare_parameter('landing_position', [1.3, -2.8, 0.732], ParameterDescriptor(description="Landing target position [x, y, z] (m), z is target altitude before disarm"))
         self.declare_parameter('position_reached_threshold', 0.2, ParameterDescriptor(description="Threshold to consider a position reached (m)"))
-        self.declare_parameter('hover_duration_sec', 5.0, ParameterDescriptor(description="Duration to hover at initial/final points (s)"))
+        self.declare_parameter('hover_duration_sec', 10.0, ParameterDescriptor(description="Duration to hover at initial/final points (s)"))    # NOTE(KAI): Increased hover duration for better thrust observation
         self.declare_parameter('landing_descent_rate_mps', 0.3, ParameterDescriptor(description="Descent rate for landing (m/s positive value)"))
         self.declare_parameter('wait_for_offboard_arm_timeout_sec', 30.0, ParameterDescriptor(description="Timeout (seconds) to wait for OFFBOARD and ARM after START command"))
 
@@ -108,14 +115,15 @@ class MlacMissionNode(Node):
             if bodyrate_kp <= 0:
                 raise ValueError("bodyrate_kp must be positive.")
             self.bodyrate_converter = BodyRateConverter(kp=bodyrate_kp)
-            print(f"\n+++++++++++++++++++++++++++++++++++++++++++++\n"
-                  f"{'Using \'bodyrate\' control level.':^45}\n"
-                  f" Bodyrate Kp: {bodyrate_kp:.3f}\n"
-                  f"+++++++++++++++++++++++++++++++++++++++++++++\n")
+            # The corrected print statement
+            print(f'\n+++++++++++++++++++++++++++++++++++++++++++++\n'
+                f'{"Using bodyrate control level.":^45}\n'
+                f' Bodyrate Kp: {bodyrate_kp:.3f}\n'
+                f'+++++++++++++++++++++++++++++++++++++++++++++\n')
         else:
-            print(f"\n+++++++++++++++++++++++++++++++++++++++++++++\n"
-                  f"{'Using \'attitude\' control level.':^45}\n"
-                  f"+++++++++++++++++++++++++++++++++++++++++++++\n")
+            print(f'\n+++++++++++++++++++++++++++++++++++++++++++++\n'
+                  f'{"Using attitude control level.":^45}\n'
+                  f'+++++++++++++++++++++++++++++++++++++++++++++\n')
         
         # --------------------------- Node State Variables --------------------------- #
         self.current_vehicle_state_py = StateClass()
@@ -187,8 +195,11 @@ class MlacMissionNode(Node):
         else:
             default_initial_goal.p = np.array(initial_hover_pos) if initial_hover_pos else np.zeros(3)
         
+        # ------------------ Uncomment if you wanna use PIDOuterLoop ----------------- #
         if self.controller_type == 'pid':
-            print("Initializing PID OuterLoop controller.")
+            print(f'\n+++++++++++++++++++++++++++++++++++++++++++++\n'
+                  f'{"Initializing PID OuterLoop controller.":^45}\n'
+                  f'+++++++++++++++++++++++++++++++++++++++++++++\n')
             self.outer_loop_ctrl = PIDOuterLoop(
                 params=self.controller_params,
                 state0=self.current_vehicle_state_py, 
@@ -197,6 +208,10 @@ class MlacMissionNode(Node):
                 package_name='mlac_sim'
             )
         elif self.controller_type in ['coml', 'coml_debug']:
+        # ----------------------------- down to here ... ----------------------------- #
+            print(f'\n+++++++++++++++++++++++++++++++++++++++++++++\n'
+                    f'{"Initializing OuterLoop controller for COML.":^45}\n'
+                    f'+++++++++++++++++++++++++++++++++++++++++++++\n')
             self.outer_loop_ctrl = OuterLoop(
                 params=self.controller_params,
                 state0=self.current_vehicle_state_py, 
@@ -208,6 +223,8 @@ class MlacMissionNode(Node):
         if not isinstance(self.outer_loop_ctrl, Node):
             self.outer_loop_ctrl.get_logger = self.get_logger # Allow it to use node's logger
 
+        self.curr_hover_thrust = 0.5 # For logging hover thrust in debug mode
+
 
         # QoS Profiles
         qos_sensor_data = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, durability=DurabilityPolicy.VOLATILE, history=HistoryPolicy.KEEP_LAST, depth=1)
@@ -216,10 +233,12 @@ class MlacMissionNode(Node):
 
         # Subscribers/Publishers
         self.vehicle_pose_sub = self.create_subscription(PoseStamped, '/mavros/local_position/pose', self.vehicle_pose_callback, qos_sensor_data)
+        self.thrust_sub = self.thrust_sub = self.create_subscription(AttitudeTarget, '/mavros/setpoint_raw/target_attitude', self.thrust_callback, qos_sensor_data)  # NOTE(KAI)
         self.vehicle_velocity_sub = self.create_subscription(TwistStamped, '/mavros/local_position/velocity_body', self.vehicle_velocity_callback, qos_sensor_data)
         self.mavros_state_sub = self.create_subscription(MavrosState, '/mavros/state', self.mavros_state_callback, qos_reliable_volatile)
         self.mission_command_sub = self.create_subscription(StringMsg, '/mission_control/command', self.mission_command_callback, qos_reliable_volatile)
 
+        self.position_setpoint_pub = self.create_publisher(PoseStamped, '/mavros/setpoint_position/local', qos_sensor_data)     # NOTE(KAI)
         self.attitude_setpoint_pub = self.create_publisher(AttitudeTarget, '/mavros/setpoint_raw/attitude', qos_sensor_data)
         self.controller_log_pub = self.create_publisher(ControllerLogMsg, '~/control_log', qos_reliable_volatile)
         self.trajectory_status_pub = self.create_publisher(BoolMsg, '~/trajectory_complete_status', qos_reliable_transientlocal)
@@ -274,6 +293,9 @@ class MlacMissionNode(Node):
         # FSM's update loop will handle mode/arm changes.
         # We could add an explicit call here if immediate reaction outside FSM update cycle is needed for critical MAVROS changes.
         # e.g., self.mission_fsm.notify_mavros_state_change(msg)
+
+    def thrust_callback(self, msg: AttitudeTarget): # NOTE(KAI)
+        self.thrust_sub.thrust = msg.thrust
 
     def vehicle_pose_callback(self, msg: PoseStamped):
         self.current_vehicle_state_py.t = msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9
@@ -404,27 +426,48 @@ class MlacMissionNode(Node):
         R_body_to_world_desired = quaternion_to_rotation_matrix(att_cmd_py.q).T
         desired_body_z_axis_in_world = R_body_to_world_desired[:, 2]
         thrust_force_along_desired_z = np.dot(att_cmd_py.F_W, desired_body_z_axis_in_world)
-        normalized_thrust = np.clip(thrust_force_along_desired_z / self.max_thrust_N, 0.0, 1.0)
+        normalized_thrust = np.clip(thrust_force_along_desired_z / (self.max_thrust_N / self.curr_hover_thrust), 0.0, 1.0)
         att_msg.thrust = float(normalized_thrust)
         
-        if self.control_level == 'attitude':
-            att_msg.type_mask = ( 
-                AttitudeTarget.IGNORE_ROLL_RATE |
-                AttitudeTarget.IGNORE_PITCH_RATE |
-                AttitudeTarget.IGNORE_YAW_RATE 
-            ) # Keep this for now, or adjust based on test results
-        
-        elif self.control_level == 'bodyrate':  # NOTE (Kai): Convert desired attitude to body rates 
-            att_msg.type_mask = AttitudeTarget.IGNORE_ATTITUDE
-            omega_cmd = self.bodyrate_converter.attitude_to_bodyrate(
-                q_current=self.current_vehicle_state_py.q,
-                q_desired=att_cmd_py.q,
-            )
-            att_msg.body_rate = vector_array_to_msg(omega_cmd)
-        else:
-            raise ValueError(f"Unknown control_level: {self.control_level}")
+        curr_mission = self.mission_fsm.get_current_phase()
+
+        if (curr_mission == MissionPhase.TAKING_OFF_TO_INITIAL_HOVER) or \
+           (curr_mission == MissionPhase.AT_INITIAL_HOVER):
+        #     or \
+        #    (curr_mission == MissionPhase.MOVING_TO_TRAJECTORY_START) or \
+        #    (curr_mission == MissionPhase.HOVER_AT_TRAJECTORY_START):
             
-        self.attitude_setpoint_pub.publish(att_msg)
+            goal_pos = current_goal_from_fsm.p
+            pos_msg = PoseStamped()
+            pos_msg.header = Header(stamp=current_ros_time.to_msg(), frame_id="map")
+            pos_msg.pose.position.x = goal_pos[0]
+            pos_msg.pose.position.y = goal_pos[1]
+            pos_msg.pose.position.z = goal_pos[2]
+            pos_msg.pose.orientation = quaternion_array_to_msg(att_cmd_py.q) # Use desired attitude
+            self.position_setpoint_pub.publish(pos_msg)
+            self.get_logger().info(f"Publishing position setpoint at hover: [{goal_pos[0]:.2f}, {goal_pos[1]:.2f}, {goal_pos[2]:.2f}]", throttle_duration_sec=2.0)
+            self.curr_hover_thrust = self.thrust_sub.thrust
+            self.get_logger().info(f"Publishing thrust setpoint at hover: {self.curr_hover_thrust:.5f}", throttle_duration_sec=2.0)
+
+        else:
+            if self.control_level == 'attitude':
+                att_msg.type_mask = ( 
+                    AttitudeTarget.IGNORE_ROLL_RATE |
+                    AttitudeTarget.IGNORE_PITCH_RATE |
+                    AttitudeTarget.IGNORE_YAW_RATE 
+                ) # Keep this for now, or adjust based on test results
+            
+            elif self.control_level == 'bodyrate':  # NOTE (Kai): Convert desired attitude to body rates 
+                att_msg.type_mask = AttitudeTarget.IGNORE_ATTITUDE
+                omega_cmd = self.bodyrate_converter.attitude_to_bodyrate(
+                    q_current=self.current_vehicle_state_py.q,
+                    q_desired=att_cmd_py.q,
+                )
+                att_msg.body_rate = vector_array_to_msg(omega_cmd)
+            else:
+                raise ValueError(f"Unknown control_level: {self.control_level}")
+                
+            self.attitude_setpoint_pub.publish(att_msg)
 
         log_data_py.p_ref = np.copy(current_goal_from_fsm.p)
         log_data_py.v_ref = np.copy(current_goal_from_fsm.v)
