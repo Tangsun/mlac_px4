@@ -418,3 +418,6 @@ class MissionFiniteStateMachine:
              active_goal = self._create_goal_from_position_array(pos_array=current_p_np, force_zero_feedback=True)
         
         return active_goal, self.trajectory_completed_in_fsm, current_cycle_start_event_time, current_cycle_end_event_time
+    
+    def get_current_phase(self) -> MissionPhase:
+        return self.current_phase

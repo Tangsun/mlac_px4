@@ -98,9 +98,6 @@ def run_tmux_commands(session_name, commands, auto_kill_duration_sec=0):
             print("The script will now attempt to attach automatically.")
             os.execvp("tmux", ["tmux", "attach-session", "-t", session_name])
 
-    except KeyboardInterrupt:
-        # This block is triggered by Ctrl+C
-        print("\nCtrl+C detected! Initiating shutdown of TMUX session.")
     except subprocess.CalledProcessError as e:
         print(f"Error setting up TMUX session: {e}")
         print(f"  To clean up a failed new session, try: tmux kill-session -t {session_name}")
@@ -108,30 +105,6 @@ def run_tmux_commands(session_name, commands, auto_kill_duration_sec=0):
         print("Error: 'tmux' command not found. Is tmux installed and in your PATH?")
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
-    
-    finally:
-        # === CLEANUP PHASE ===
-        # This block runs ALWAYS: on normal exit, on Ctrl+C, or on error.
-        print(f"\n--- Cleaning up TMUX session '{session_name}' ---")
-        # Check if the session still exists before trying to kill it.
-        check_cmd = ["tmux", "has-session", "-t", session_name]
-        session_exists = subprocess.run(check_cmd).returncode == 0
-        if session_exists:
-            print(f"Session '{session_name}' found. Sending kill command...")
-            try:
-                # First, try a graceful shutdown by sending Ctrl+C to all panes
-                for i in range(len(commands)):
-                    target_pane = f"{session_name}:0.{i}"
-                    subprocess.run(["tmux", "send-keys", "-t", target_pane, "C-c"], check=False)
-                time.sleep(1) # Give processes a moment to react
-
-                # Finally, kill the session forcefully
-                subprocess.run(["tmux", "kill-session", "-t", session_name], check=True, capture_output=True)
-                print(f"Session '{session_name}' successfully killed.")
-            except subprocess.CalledProcessError as e_kill:
-                print(f"Note: Could not kill session '{session_name}' cleanly, it may have already been closed. Error: {e_kill.stderr.decode().strip()}")
-        else:
-            print(f"Session '{session_name}' no longer exists. No cleanup needed.")
 
 
 if __name__ == "__main__":
@@ -143,45 +116,7 @@ if __name__ == "__main__":
         type=str,
         help="A brief description of the mission/test being recorded."
     )
-    parser.add_argument(
-        "--trajectory_file",
-        type=str,
-        # default = "N100_T30.0_spline_11col_zero_yaw.npy",
-        # default="figure8_L4.0_W2.0_t10s_alt2.0_initpsi0deg_FORCEZEROPsi_50hz_11col.npy",
-        # default="setpoint_rot_yaw_x0.0_y0.0_z2.0_t20.0s_initpsi0deg_rate15dps_50hz_8col.npy",
-        default="setpoint_hold_x0.0_y0.0_z2.0_t20.0s_psi60deg_50hz_11col.npy",
-        help="Name of the .npy trajectory file in 'mlac_sim/traj_data/' folder to be used by mlac_mission_node."
-    )
-    parser.add_argument(
-        "--trajectory_index",
-        type=int,
-        default = 22,
-        help="index of the trajectory in the .npy file (if multiple) to be used by mlac_mission_node."
-    )
-    parser.add_argument(
-        "--controller_type",
-        type=str,
-        default="pid", 
-        help="Type of controller to be used by mlac_mission_node (e.g., pid, coml, coml_debug)."
-    )
-    parser.add_argument(
-        "--control_level",
-        type=str,
-        default="attitude",
-        help="Control level to be used by mlac_mission_node (e.g., attitude, bodyrate)."
-    )
-    parser.add_argument(
-        "--bodyrate_kp",
-        type=float,
-        default=0.0,
-        help="Proportional gains for bodyrate control."
-    )
-    parser.add_argument(
-        "--world_name",
-        type=str,
-        default="default", 
-        help="Name of the Gazebo world file (e.g., windy_test, default) to be used by PX4 SITL."
-    )
+
     parser.add_argument(
         "--auto_kill_duration_sec",
         type=int,
@@ -189,29 +124,32 @@ if __name__ == "__main__":
         help="Duration in seconds before automatically killing the TMUX session. Set to 0 to disable auto-kill and attach instead."
     )
 
+    parser.add_argument(
+        "--bodyrate_kp",
+        type=float,
+        default=0.5, 
+        help="Body rate proportional gain."
+    )
+
     args = parser.parse_args()
     mission_desc_from_arg = args.mission_description
-    trajectory_file_name = args.trajectory_file
-    trajectory_index = args.trajectory_index
-    world_name_arg = args.world_name
     auto_kill_sec = args.auto_kill_duration_sec
-    controller_type = args.controller_type
-    control_level = args.control_level
     bodyrate_kp = args.bodyrate_kp
 
-    session = "mlac_sim_main" 
-    
+
+    session = "mlac_sim_main" # Changed session name slightly
+
     ros2_ws_path = os.path.expanduser("~/mlac_ijrr/mlac_px4/ros2_px4_ws")   # Kai's path to the ROS 2 workspace
     px4_src_path = os.path.expanduser("~/PX4-Autopilot")                    # Kai's PX4 source path
     venv_path = os.path.expanduser("~/mlac_ijrr/mlac_px4/mlac_env")         # Kai's virtual environment path
 
     now = datetime.datetime.now()
     timestamp_for_bag_dir = now.strftime("%m%d_%H%M%S")
-    bag_directory_name = f"windy_bag_{timestamp_for_bag_dir}" 
+    bag_directory_name = f"rosbag_{timestamp_for_bag_dir}" # Include description in folder name
     
-    base_bag_and_log_path = os.path.join(ros2_ws_path, "raw_traj_data")
-    full_bag_output_path = os.path.join(base_bag_and_log_path, bag_directory_name) 
-    info_log_file_path = os.path.join(base_bag_and_log_path, "windy_data_traj.txt") 
+    base_bag_and_log_path = os.path.join(ros2_ws_path, "rosbag_data")
+    full_bag_output_path = os.path.join(base_bag_and_log_path, bag_directory_name) # This is the argument for ros2 bag record -o
+    info_log_file_path = os.path.join(base_bag_and_log_path, "missions_log.txt") # General log file
 
     print(f"Generated bag path for this run: {full_bag_output_path}")
     print(f"Mission log file: {info_log_file_path}")
@@ -228,12 +166,8 @@ if __name__ == "__main__":
         f"echo 'Exporting PYTHONPATH with venv site-packages...' && "
         f"export PYTHONPATH=\"{venv_path}/lib/python3.10/site-packages${{PYTHONPATH:+:$PYTHONPATH}}\" && "
         f"echo 'Running mlac_mission_node...' && "
-        f"ros2 run mlac_sim mlac_mission_node --ros-args \
-            -p controller_type:='{controller_type}' \
-            -p control_level:='{control_level}' \
-            -p bodyrate_kp:={bodyrate_kp} \
-            -p trajectory_file_name:='{trajectory_file_name}' \
-            -p trajectory_index:={trajectory_index} ; "
+        f"ros2 run mlac_sim bodyrate_sanity_check --ros-args \
+            -p bodyrate_kp:={bodyrate_kp} ;"
         f"echo 'mlac_mission_node pane exited.'; exec bash"
     )
 
@@ -253,7 +187,7 @@ if __name__ == "__main__":
     topics_to_record = [
         "/mavros/state", "/mavros/local_position/pose", "/mavros/local_position/velocity_body", 
         "/mavros/attitude", "/mavros/setpoint_raw/attitude", 
-        f"/mlac_mission_node/control_log",  f"/mlac_mission_node/trajectory_complete_status", 
+        "/desired_attitude",
         "/mission_control/command", "/rosout",
     ]
     rosbag_command = (
@@ -266,8 +200,8 @@ if __name__ == "__main__":
     )
 
     px4_pane_cmd = (
-        f"echo '>>> Starting PX4 SITL (gz_x500 with world: {world_name_arg})...'; "
-        f"cd {px4_src_path} && PX4_GZ_WORLD={world_name_arg} make px4_sitl gz_x500; "
+        f"echo '>>> Starting PX4 SITL (gz_x500)...'; "
+        f"cd {px4_src_path} && make px4_sitl gz_x500; "
         f"echo 'PX4 SITL pane exited.'; exec bash"
     )
 
@@ -311,5 +245,4 @@ if __name__ == "__main__":
     if len(commands_to_run) > 8: 
         print(f"Warning: Pane splitting logic is explicitly defined for up to 8 panes. You have {len(commands_to_run)} commands.")
 
-    
     run_tmux_commands(session, commands_to_run, auto_kill_duration_sec=auto_kill_sec)

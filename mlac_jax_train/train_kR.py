@@ -254,6 +254,8 @@ if __name__ == "__main__":
         shuffled_data
     )
 
+    # NOTE: Question - does `ensemble_valid_data` only get used once when doing the initial `update_best_ensemble`???
+
     # Initialize gradient-based optimizer (ADAM)
     learning_rate = hparams['ensemble']['learning_rate']
     batch_size = int(hparams['ensemble']['batch_frac'] * num_train_samples)
@@ -338,6 +340,7 @@ if __name__ == "__main__":
 
         # A = jax.scipy.linalg.sqrtm(P) @ (jnp.maximum(jnp.abs(pA), 1e-6 * jnp.ones_like(pA))**(qn-1) * jnp.sign(pA) * (jnp.ones_like(pA) - jnp.isclose(pA, 0, atol=1e-6)))
         # Previous implementation P size: feature_size x feature_size
+        # NOTE: Question - is this bringing the dual variable pA to the primal space?
         A = (jnp.maximum(jnp.abs(pA), 1e-6 * jnp.ones_like(pA))**(qn-1) * jnp.sign(pA) * (jnp.ones_like(pA) - jnp.isclose(pA, 0, atol=1e-6))) @ P
 
         # Auxiliary signals
@@ -476,6 +479,7 @@ if __name__ == "__main__":
                                         ((hdim*(hdim + 1)) // 2,)),
             # 'k_R': 1.0*jax.random.normal(subkeys_gains[3],
             #                             (3,)),
+            # NOTE: Question - this is fixed???
             'k_R': jnp.array([args.k_R_xy, args.k_R_xy, args.k_R_z]),
             # 'k_Omega': 0.1*jax.random.normal(subkeys_gains[4],
             #                             (3,))
