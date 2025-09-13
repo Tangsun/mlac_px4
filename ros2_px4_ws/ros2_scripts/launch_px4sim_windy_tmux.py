@@ -138,6 +138,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Run PX4 SITL, MAVROS, mlac_node, record ROS bag, log mission details, and optionally auto-arm/offboard and auto-kill."
     )
+    parser.add_argument("--directory", type=str, default="ST", help="Directory settings for running on different computers (Sunbochen/Kai)")
     parser.add_argument(
         "mission_description",
         type=str,
@@ -191,6 +192,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     mission_desc_from_arg = args.mission_description
+    directory_setting = args.directory
     trajectory_file_name = args.trajectory_file
     trajectory_index = args.trajectory_index
     world_name_arg = args.world_name
@@ -201,9 +203,14 @@ if __name__ == "__main__":
 
     session = "mlac_sim_main" 
     
-    ros2_ws_path = os.path.expanduser("~/mlac_ijrr/mlac_px4/ros2_px4_ws")   # Kai's path to the ROS 2 workspace
-    px4_src_path = os.path.expanduser("~/PX4-Autopilot")                    # Kai's PX4 source path
-    venv_path = os.path.expanduser("~/mlac_ijrr/mlac_px4/mlac_env")         # Kai's virtual environment path
+    if directory_setting == "Kai":
+        ros2_ws_path = os.path.expanduser("~/mlac_ijrr/mlac_px4/ros2_px4_ws")   # Kai's path to the ROS 2 workspace
+        px4_src_path = os.path.expanduser("~/PX4-Autopilot")                    # Kai's PX4 source path
+        venv_path = os.path.expanduser("~/mlac_ijrr/mlac_px4/mlac_env")         # Kai's virtual environment path
+    elif directory_setting == "ST":
+        ros2_ws_path = os.path.expanduser("~/mlac_px4/ros2_px4_ws")        # Sunbochen's path to the ROS 2 workspace
+        px4_src_path = os.path.expanduser("~/mlac_px4/px4_src/PX4-Autopilot")      
+        venv_path = os.path.expanduser("~/mlac_px4/mlac_env")              # Sunbochen's virtual environment path             
 
     now = datetime.datetime.now()
     timestamp_for_bag_dir = now.strftime("%m%d_%H%M%S")
