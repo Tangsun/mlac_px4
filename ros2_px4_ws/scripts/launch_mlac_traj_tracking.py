@@ -105,10 +105,10 @@ if __name__ == "__main__":
         "--trajectory_file",
         type=str,
         # default="setpoint_hold_x1.0_y1.0_z4.0_t20.0s_50hz_8col.npy", # Default to your new setpoint trajectory
-        default = "N50_T30.0_spline_11col_zero_yaw.npy",
+        # default = "N50_T30.0_spline_11col_zero_yaw.npy",
         # default = "circle_r2.0_t20.0s_alt2.0_initpsi0deg_50hz_11col.npy",
         # default = "setpoint_hold_x0.0_y0.0_z2.0_t20.0s_psi60deg_50hz_11col.npy",
-        # default = "setpoint_rot_yaw_x0.0_y0.0_z2.0_t20.0s_initpsi0deg_rate15dps_50hz_8col.npy", 
+        default = "setpoint_rot_yaw_x0.0_y0.0_z2.0_t20.0s_initpsi0deg_rate15dps_50hz_8col.npy", 
         # default = "circle_trajectory_8col_50hz.npy",
         help="Name of the .npy trajectory file in 'mlac_sim/traj_data/' folder to be used by mlac_mission_node."
 
@@ -117,7 +117,7 @@ if __name__ == "__main__":
         "--trajectory_index",
         type=int,
         # default="setpoint_hold_x1.0_y1.0_z4.0_t20.0s_50hz_8col.npy", # Default to your new setpoint trajectory
-        default = 22,
+        default = 0,
         help="index of the trajectory in the .npy file (if multiple) to be used by mlac_mission_node."
     )
     parser.add_argument(
