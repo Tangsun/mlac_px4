@@ -14,7 +14,8 @@ def main():
         os.path.dirname(script_dir), # up to ros2_px4_ws
         "src", "mlac_sim", "traj_data", 
         # "circle_r2.0_t30.0s_alt2.0_psi0deg_50hz_11col.npy"   # --> a simple circle, without yaw changes
-        "circle_r2.0_t20s_alt1.5_initpsi0deg_pointToCenter_50hz_11col.npy"   # --> circle with 18deg/s yaw rate
+        # "circle_r2.0_t20s_alt1.5_initpsi0deg_pointToCenter_50hz_11col.npy"   # --> circle with 18deg/s yaw rate
+        "circle_r2.0_t20s_alt1.5_initpsi0deg_pointToCenter_50hz_11col_2laps.npy"   # --> circle with 18deg/s yaw rate, 2 laps
         # "figure8_L4.0_W2.0_t10s_alt2.0_initpsi0deg_FORCEZEROPsi_50hz_11col.npy" # --> figure 8 with zero yaw
         # "setpoint_hold_x0.0_y0.0_z2.0_t20.0s_psi60deg_50hz_11col.npy"   # --> ??? setpoint hold with yaw=60deg
         # "setpoint_rot_yaw_x0.0_y0.0_z2.0_t20.0s_initpsi0deg_rate15dps_50hz_8col.npy"    # --> setpoint hold with rotating yaw???
