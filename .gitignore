@@ -50,6 +50,7 @@ desktop.ini
 # processed_data/
 raw_traj_data/
 rosbag_windy/
+rosbag_data/
 # mlac_test/
 ros2_px4_ws/archive
 
