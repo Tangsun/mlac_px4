@@ -69,9 +69,13 @@ class MlacMissionNode(Node):
         # ------------------------- END NEW DEBUG PARAMETERS ------------------------- #
 
         # ------------------- New Mission Logic Parameters for FSM ------------------- #
-        self.declare_parameter('initial_hover_position', [1.3, -2.8, 1.5], ParameterDescriptor(description="Initial hover position [x, y, z] (m)"))
-        self.declare_parameter('final_hover_position', [1.3, -2.8, 1.5], ParameterDescriptor(description="Final hover position [x, y, z] (m)"))
-        self.declare_parameter('landing_position', [1.3, -2.8, 0.732], ParameterDescriptor(description="Landing target position [x, y, z] (m), z is target altitude before disarm"))
+        # self.declare_parameter('initial_hover_position', [1.3, -2.8, 1.5], ParameterDescriptor(description="Initial hover position [x, y, z] (m)"))
+        # self.declare_parameter('final_hover_position', [1.3, -2.8, 1.5], ParameterDescriptor(description="Final hover position [x, y, z] (m)"))
+        # self.declare_parameter('landing_position', [1.3, -2.8, 0.732], ParameterDescriptor(description="Landing target position [x, y, z] (m), z is target altitude before disarm"))
+        self.declare_parameter('initial_hover_position', [0.0, -2.0, 1.5], ParameterDescriptor(description="Initial hover position [x, y, z] (m)"))
+        self.declare_parameter('final_hover_position', [0.0, -2.0, 1.5], ParameterDescriptor(description="Final hover position [x, y, z] (m)"))
+        self.declare_parameter('landing_position', [0.0, -2.0, 0.0], ParameterDescriptor(description="Landing target position [x, y, z] (m), z is target altitude before disarm"))
+        
         self.declare_parameter('position_reached_threshold', 0.2, ParameterDescriptor(description="Threshold to consider a position reached (m)"))
         self.declare_parameter('hover_duration_sec', 10.0, ParameterDescriptor(description="Duration to hover at initial/final points (s)"))    # NOTE(KAI): Increased hover duration for better thrust observation
         self.declare_parameter('landing_descent_rate_mps', 0.3, ParameterDescriptor(description="Descent rate for landing (m/s positive value)"))

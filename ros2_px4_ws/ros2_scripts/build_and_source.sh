@@ -18,6 +18,6 @@ echo "==> Sourcing the local workspace environment..."
 source install/setup.bash
 
 echo "==> Returning to the scripts directory..."
-cd scripts
+cd ros2_scripts
 
 echo "✅ Done! Your environment is ready."
