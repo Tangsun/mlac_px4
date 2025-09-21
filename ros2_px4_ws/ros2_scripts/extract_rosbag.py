@@ -9,6 +9,8 @@ from rclpy.time import Time
 from rclpy.serialization import deserialize_message
 from rosidl_runtime_py.utilities import get_message
 import matplotlib.pyplot as plt 
+# set font size for all plots
+plt.rcParams.update({'font.size': 24})
 
 # Attempt to import rosbag2_py components
 try:
@@ -115,19 +117,19 @@ def plot_extracted_data(data, bag_file_name):
     fig_3d = plt.figure(figsize=(10, 8))
     ax_3d = fig_3d.add_subplot(111, projection='3d')
     if data['actual_position_m'].shape[0] > 0:
-        ax_3d.plot(data['actual_position_m'][:, 0], data['actual_position_m'][:, 1], data['actual_position_m'][:, 2], label='Actual Trajectory (Bag State)', color='b')
+        ax_3d.plot(data['actual_position_m'][:, 0], data['actual_position_m'][:, 1], data['actual_position_m'][:, 2], label='Actual Trajectory', color='b')
         ax_3d.scatter(data['actual_position_m'][0, 0], data['actual_position_m'][0, 1], data['actual_position_m'][0, 2], c='blue', marker='o', s=80, label='Actual Start', depthshade=False)
     if data['reference_position_m'].shape[0] > 0:
-        ax_3d.plot(data['reference_position_m'][:, 0], data['reference_position_m'][:, 1], data['reference_position_m'][:, 2], label='Reference Trajectory (Control Log)', color='r', linestyle='--')
-        ax_3d.scatter(data['reference_position_m'][0, 0], data['reference_position_m'][0, 1], data['reference_position_m'][0, 2], c='red', marker='x', s=80, label='Reference Start (Log)', depthshade=False)
+        ax_3d.plot(data['reference_position_m'][:, 0], data['reference_position_m'][:, 1], data['reference_position_m'][:, 2], label='Reference Trajectory', color='r', linestyle='--')
+        ax_3d.scatter(data['reference_position_m'][0, 0], data['reference_position_m'][0, 1], data['reference_position_m'][0, 2], c='red', marker='x', s=80, label='Reference Start', depthshade=False)
     if has_original_ref and data['original_ref_position_m_aligned'].shape[0] > 0:
-        ax_3d.plot(data['original_ref_position_m_aligned'][:, 0], data['original_ref_position_m_aligned'][:, 1], data['original_ref_position_m_aligned'][:, 2], label='Original Reference (File)', color='g', linestyle=':')
+        ax_3d.plot(data['original_ref_position_m_aligned'][:, 0], data['original_ref_position_m_aligned'][:, 1], data['original_ref_position_m_aligned'][:, 2], label='Original Reference ', color='g', linestyle=':')
         ax_3d.scatter(data['original_ref_position_m_aligned'][0, 0], data['original_ref_position_m_aligned'][0, 1], data['original_ref_position_m_aligned'][0, 2], c='green', marker='^', s=80, label='Original Ref Start (File)', depthshade=False)
 
-    ax_3d.set_xlabel('X Position (m)')
-    ax_3d.set_ylabel('Y Position (m)')
-    ax_3d.set_zlabel('Z Position (m)')
-    ax_3d.set_title(f'3D Trajectory Comparison\nBag: {os.path.basename(bag_file_name)}', fontsize=16)
+    ax_3d.set_xlabel('X (m)')
+    ax_3d.set_ylabel('Y (m)')
+    ax_3d.set_zlabel('Z (m)')
+    # ax_3d.set_title(f'3D Trajectory Comparison\nBag: {os.path.basename(bag_file_name)}', fontsize=16)
     ax_3d.legend()
     ax_3d.grid(True)
 
@@ -148,6 +150,11 @@ def plot_extracted_data(data, bag_file_name):
             ax_3d.set_xlim(mid_x - max_range, mid_x + max_range); ax_3d.set_ylim(mid_y - max_range, mid_y + max_range); ax_3d.set_zlim(mid_z - max_range, mid_z + max_range)
     plt.tight_layout()
     plt.show()
+
+    # save fig_3d
+    output_3d_plot_path = os.path.join(os.path.dirname(bag_file_name), '3d_trajectory_plot.png')
+    fig_3d.savefig(output_3d_plot_path, bbox_inches='tight')
+    print(f"3D trajectory plot saved to: {output_3d_plot_path}")
 
 
 def extract_trajectory_data(bag_file_path: str, 

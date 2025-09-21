@@ -360,31 +360,59 @@ if __name__ == "__main__":
 
         # Attitude controller based on Lee et al. 2010 (SE(3) Geometric control)
 
+        # f_d = jnp.linalg.norm(u_d)
+        # b_3d = u_d / jnp.linalg.norm(u_d)
+        # b_1d = jnp.array([1, 0, 0])
+        # cross = jnp.cross(b_3d, b_1d)
+        # b_2d = cross / jnp.linalg.norm(cross)
+
+        # R_d = jnp.column_stack((jnp.cross(b_2d, b_3d), b_2d, b_3d))
+
+        # Omega_d = jnp.array([0, 0, 0])
+        # dOmega_d = jnp.array([0, 0, 0])
+
+        # e_R = 0.5 * vee(R_d.T@R - R.T@R_d)
+        # e_Omega = Omega - R.T@R_d@Omega_d
+
+        # M = - k_R*e_R \
+        #     - k_Omega*e_Omega \
+        #     + jnp.cross(Omega, J@Omega) \
+        #     - J@(hat(Omega)@R.T@R_d@Omega_d - R.T@R_d@dOmega_d)
+
+        # dOmega = jax.scipy.linalg.solve(J, M - jnp.cross(Omega, J@Omega), assume_a='pos')
+        # dR = R@hat(Omega)
+        # dR_flatten = dR.flatten()
+
+        # e_3 = jnp.array([0, 0, 1])
+        # u = f_d*R@e_3
+
+        # New implementation: assume the vehicle has direct bodyrate control
+
+        # Desired attitude rotation matrix computation
+        # Currently assuming yaw_d is always 0
+
         f_d = jnp.linalg.norm(u_d)
         b_3d = u_d / jnp.linalg.norm(u_d)
-        b_1d = jnp.array([1, 0, 0])
-        cross = jnp.cross(b_3d, b_1d)
-        b_2d = cross / jnp.linalg.norm(cross)
+        b_1d_w = jnp.array([1, 0, 0])
+        b_2d_temp = jnp.cross(b_3d, b_1d_w)
+        b_2d = b_2d_temp / jnp.linalg.norm(b_2d_temp)
+        b_1d = jnp.cross(b_2d, b_3d)
 
-        R_d = jnp.column_stack((jnp.cross(b_2d, b_3d), b_2d, b_3d))
+        R_d = jnp.column_stack((b_1d, b_2d, b_3d))
 
-        Omega_d = jnp.array([0, 0, 0])
-        dOmega_d = jnp.array([0, 0, 0])
-
+        # attitude error 
         e_R = 0.5 * vee(R_d.T@R - R.T@R_d)
-        e_Omega = Omega - R.T@R_d@Omega_d
+        Omega_cmd = -k_R * e_R  # desired body rates
 
-        M = - k_R*e_R \
-            - k_Omega*e_Omega \
-            + jnp.cross(Omega, J@Omega) \
-            - J@(hat(Omega)@R.T@R_d@Omega_d - R.T@R_d@dOmega_d)
-
-        dOmega = jax.scipy.linalg.solve(J, M - jnp.cross(Omega, J@Omega), assume_a='pos')
-        dR = R@hat(Omega)
+        # Forward simulation
+        dR = R @ hat(Omega_cmd)
         dR_flatten = dR.flatten()
 
-        e_3 = jnp.array([0, 0, 1])
-        u = f_d*R@e_3
+        # dummy dOmega
+        dt = hparams['meta']['dt']
+        dOmega = (Omega_cmd - Omega) / dt
+
+        u = f_d * R @ jnp.array([0, 0, 1])
 
         # Apply control to "true" dynamics
         f_ext = x

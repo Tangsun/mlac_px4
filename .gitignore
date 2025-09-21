@@ -49,8 +49,10 @@ desktop.ini
 # Ignore data files
 # processed_data/
 raw_traj_data/
+rosbag_data/
 rosbag_windy/
 rosbag_data/
+ros2_px4_ws/rosbag_data
 # mlac_test/
 ros2_px4_ws/archive
 
@@ -69,3 +71,6 @@ mlac_jax_train/train_results/
 # mlac_jax_train/data
 
 ros2_px4_ws/src/mlac_sim/models/
+
+# Ignore legacy implementations, which are put in Archive folder
+Archive/

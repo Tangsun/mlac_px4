@@ -143,6 +143,8 @@ class OuterLoop:
             return cmd
         
         f_hat = np.zeros(3) 
+
+        # -------------------------- COML Code (not for PID) ------------------------- #
         if self.controller == 'coml':
             qn = 1.1 + self.pnorm**2
             R_flatten = quaternion_to_rotation_matrix(state.q).flatten()
@@ -168,6 +170,7 @@ class OuterLoop:
 
             self.pA_prev = pA
             self.dA_prev = dA
+        
         
         F_W = self.get_force(dt, state, goal, f_hat)
         q_ref = self.get_attitude(state, goal, F_W)

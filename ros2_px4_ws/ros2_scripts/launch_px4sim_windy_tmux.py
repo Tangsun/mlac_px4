@@ -98,6 +98,9 @@ def run_tmux_commands(session_name, commands, auto_kill_duration_sec=0):
             print("The script will now attempt to attach automatically.")
             os.execvp("tmux", ["tmux", "attach-session", "-t", session_name])
 
+    except KeyboardInterrupt:
+        # This block is triggered by Ctrl+C
+        print("\nCtrl+C detected! Initiating shutdown of TMUX session.")
     except subprocess.CalledProcessError as e:
         print(f"Error setting up TMUX session: {e}")
         print(f"  To clean up a failed new session, try: tmux kill-session -t {session_name}")
@@ -105,12 +108,37 @@ def run_tmux_commands(session_name, commands, auto_kill_duration_sec=0):
         print("Error: 'tmux' command not found. Is tmux installed and in your PATH?")
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
+    
+    finally:
+        # === CLEANUP PHASE ===
+        # This block runs ALWAYS: on normal exit, on Ctrl+C, or on error.
+        print(f"\n--- Cleaning up TMUX session '{session_name}' ---")
+        # Check if the session still exists before trying to kill it.
+        check_cmd = ["tmux", "has-session", "-t", session_name]
+        session_exists = subprocess.run(check_cmd).returncode == 0
+        if session_exists:
+            print(f"Session '{session_name}' found. Sending kill command...")
+            try:
+                # First, try a graceful shutdown by sending Ctrl+C to all panes
+                for i in range(len(commands)):
+                    target_pane = f"{session_name}:0.{i}"
+                    subprocess.run(["tmux", "send-keys", "-t", target_pane, "C-c"], check=False)
+                time.sleep(1) # Give processes a moment to react
+
+                # Finally, kill the session forcefully
+                subprocess.run(["tmux", "kill-session", "-t", session_name], check=True, capture_output=True)
+                print(f"Session '{session_name}' successfully killed.")
+            except subprocess.CalledProcessError as e_kill:
+                print(f"Note: Could not kill session '{session_name}' cleanly, it may have already been closed. Error: {e_kill.stderr.decode().strip()}")
+        else:
+            print(f"Session '{session_name}' no longer exists. No cleanup needed.")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Run PX4 SITL, MAVROS, mlac_node, record ROS bag, log mission details, and optionally auto-arm/offboard and auto-kill."
     )
+    parser.add_argument("--directory", type=str, default="ST", help="Directory settings for running on different computers (Sunbochen/Kai)")
     parser.add_argument(
         "mission_description",
         type=str,
@@ -120,8 +148,9 @@ if __name__ == "__main__":
         "--trajectory_file",
         type=str,
         # default = "N100_T30.0_spline_11col_zero_yaw.npy",
-        # default = "circle_r2.0_t15.0s_alt2.0_psi0deg_50hz_11col.npy",
-        default = "figure8_L4.0_W2.0_t20s_alt2.0_initpsi0deg_FORCEZEROPsi_50hz_11col.npy",
+        # default="figure8_L4.0_W2.0_t10s_alt2.0_initpsi0deg_FORCEZEROPsi_50hz_11col.npy",
+        # default="setpoint_rot_yaw_x0.0_y0.0_z2.0_t20.0s_initpsi0deg_rate15dps_50hz_8col.npy",
+        default="setpoint_hold_x0.0_y0.0_z2.0_t20.0s_psi60deg_50hz_11col.npy",
         help="Name of the .npy trajectory file in 'mlac_sim/traj_data/' folder to be used by mlac_mission_node."
     )
     parser.add_argument(
@@ -131,40 +160,65 @@ if __name__ == "__main__":
         help="index of the trajectory in the .npy file (if multiple) to be used by mlac_mission_node."
     )
     parser.add_argument(
+        "--controller_type",
+        type=str,
+        default="pid", 
+        help="Type of controller to be used by mlac_mission_node (e.g., pid, coml, coml_debug)."
+    )
+    parser.add_argument(
+        "--control_level",
+        type=str,
+        default="attitude",
+        help="Control level to be used by mlac_mission_node (e.g., attitude, bodyrate)."
+    )
+    parser.add_argument(
+        "--bodyrate_kp",
+        type=float,
+        default=0.0,
+        help="Proportional gains for bodyrate control."
+    )
+    parser.add_argument(
         "--world_name",
         type=str,
-        default="windy_small", 
-        # default="windy_moderate",
-        # default="windy_high",
+        default="default", 
         help="Name of the Gazebo world file (e.g., windy_test, default) to be used by PX4 SITL."
     )
     parser.add_argument(
         "--auto_kill_duration_sec",
         type=int,
-        default=240, 
+        default=90, 
         help="Duration in seconds before automatically killing the TMUX session. Set to 0 to disable auto-kill and attach instead."
     )
 
     args = parser.parse_args()
     mission_desc_from_arg = args.mission_description
+    directory_setting = args.directory
     trajectory_file_name = args.trajectory_file
     trajectory_index = args.trajectory_index
     world_name_arg = args.world_name
     auto_kill_sec = args.auto_kill_duration_sec
+    controller_type = args.controller_type
+    control_level = args.control_level
+    bodyrate_kp = args.bodyrate_kp
 
     session = "mlac_sim_main" 
     
-    ros2_ws_path = os.path.expanduser("~/mlac_px4/ros2_px4_ws")
-    px4_src_path = os.path.expanduser("~/mlac_px4/px4_src/PX4-Autopilot")
-    venv_path = os.path.expanduser("~/mlac_px4/mlac_env")
+    if directory_setting == "Kai":
+        ros2_ws_path = os.path.expanduser("~/mlac_ijrr/mlac_px4/ros2_px4_ws")   # Kai's path to the ROS 2 workspace
+        px4_src_path = os.path.expanduser("~/PX4-Autopilot")                    # Kai's PX4 source path
+        venv_path = os.path.expanduser("~/mlac_ijrr/mlac_px4/mlac_env")         # Kai's virtual environment path
+    elif directory_setting == "ST":
+        ros2_ws_path = os.path.expanduser("~/mlac_px4/ros2_px4_ws")        # Sunbochen's path to the ROS 2 workspace
+        px4_src_path = os.path.expanduser("~/mlac_px4/px4_src/PX4-Autopilot")      
+        venv_path = os.path.expanduser("~/mlac_px4/mlac_env")              # Sunbochen's virtual environment path             
 
     now = datetime.datetime.now()
     timestamp_for_bag_dir = now.strftime("%m%d_%H%M%S")
     bag_directory_name = f"windy_bag_{timestamp_for_bag_dir}" 
     
-    base_bag_and_log_path = os.path.join(ros2_ws_path, "mlac_test")
+    base_bag_and_log_path = os.path.join(ros2_ws_path, "raw_traj_data")
     full_bag_output_path = os.path.join(base_bag_and_log_path, bag_directory_name) 
-    info_log_file_path = os.path.join(base_bag_and_log_path, "sim_results.txt") 
+    info_log_file_path = os.path.join(base_bag_and_log_path, "windy_data_traj.txt") 
 
     print(f"Generated bag path for this run: {full_bag_output_path}")
     print(f"Mission log file: {info_log_file_path}")
@@ -182,11 +236,11 @@ if __name__ == "__main__":
         f"export PYTHONPATH=\"{venv_path}/lib/python3.10/site-packages${{PYTHONPATH:+:$PYTHONPATH}}\" && "
         f"echo 'Running mlac_mission_node...' && "
         f"ros2 run mlac_sim mlac_mission_node --ros-args \
+            -p controller_type:='{controller_type}' \
+            -p control_level:='{control_level}' \
+            -p bodyrate_kp:={bodyrate_kp} \
             -p trajectory_file_name:='{trajectory_file_name}' \
-            -p position_reached_threshold:='0.3' \
-            -p trajectory_index:={trajectory_index} \
-            -p controller_type:='coml'; "
-            # -p trajectory_index:={trajectory_index} \
+            -p trajectory_index:={trajectory_index} ; "
         f"echo 'mlac_mission_node pane exited.'; exec bash"
     )
 
@@ -229,14 +283,14 @@ if __name__ == "__main__":
         f"echo '>>> Initiating flight sequence...'; "
         f"source {ros2_ws_path}/install/setup.bash && "
         f"echo 'Sending START_MISSION command...' && "
-        # f"ros2 topic pub --once /mission_control/command std_msgs/msg/String '{{data: \"START_MISSION\"}}' && "
-        # f"sleep 5 && " 
-        # f"echo 'Attempting to ARM drone...' && "
-        # f"ros2 service call /mavros/cmd/arming mavros_msgs/srv/CommandBool '{{value: true}}' && "
-        # f"sleep 2 && "
-        # f"echo 'Attempting to set OFFBOARD mode...' && "
-        # f"ros2 service call /mavros/set_mode mavros_msgs/srv/SetMode '{{custom_mode: \"OFFBOARD\"}}'; "
-        # f"echo 'Flight initiation commands sent.'; exec bash" 
+        f"ros2 topic pub --once /mission_control/command std_msgs/msg/String '{{data: \"START_MISSION\"}}' && "
+        f"sleep 5 && " 
+        f"echo 'Attempting to ARM drone...' && "
+        f"ros2 service call /mavros/cmd/arming mavros_msgs/srv/CommandBool '{{value: true}}' && "
+        f"sleep 2 && "
+        f"echo 'Attempting to set OFFBOARD mode...' && "
+        f"ros2 service call /mavros/set_mode mavros_msgs/srv/SetMode '{{custom_mode: \"OFFBOARD\"}}'; "
+        f"echo 'Flight initiation commands sent.'; exec bash" 
     )
     
     general_command_pane = (
@@ -253,8 +307,8 @@ if __name__ == "__main__":
         f"sleep 5; echo '>>> Launching MAVROS...'; source {ros2_ws_path}/install/setup.bash && ros2 launch mavros px4.launch fcu_url:=udp://:14540@localhost:14557; echo 'MAVROS pane exited.'; exec bash", 
         mlac_node_command,  
         set_stream_rates_command, 
-        # rosbag_command,     
-        f"sleep 15; echo '>>> Launching QGroundControl...'; cd {os.path.dirname(px4_src_path)} && ./QGroundControl.AppImage; echo 'QGC pane exited.'; exec bash", 
+        rosbag_command,     
+        f"sleep 15; echo '>>> Launching QGroundControl...'; cd {px4_src_path} && ./QGroundControl-x86_64.AppImage; echo 'QGC pane exited.'; exec bash", 
         flight_initiation_command, 
         general_command_pane 
     ]
@@ -264,4 +318,5 @@ if __name__ == "__main__":
     if len(commands_to_run) > 8: 
         print(f"Warning: Pane splitting logic is explicitly defined for up to 8 panes. You have {len(commands_to_run)} commands.")
 
+    
     run_tmux_commands(session, commands_to_run, auto_kill_duration_sec=auto_kill_sec)
