@@ -27,7 +27,8 @@ def euler_from_quaternion(w, x, y, z):
 
 def generate_circle_data(T, dt, radius, center_x, center_y, alt, 
                          initial_yaw_rad=0.0, num_cols_output=8, 
-                         zero_dpsi_flag=False, force_zero_yaw_angle_flag=False): # Added flags
+                         zero_dpsi_flag=False, force_zero_yaw_angle_flag=False,
+                         point_to_center=False): # Added flags
     if T <= 0 or dt <= 0:
         print("Error: Duration (T) and time step (dt) must be positive.")
         return None
@@ -52,21 +53,33 @@ def generate_circle_data(T, dt, radius, center_x, center_y, alt,
     trajectory_data[:, 4] = -radius * omega * np.sin(theta_for_pos) 
     trajectory_data[:, 5] = radius * omega * np.cos(theta_for_pos)  
     trajectory_data[:, 6] = 0.0 
-    
-    # Yaw (psi) and Yaw Rate (dpsi)
-    final_psi_val = 0.0
-    final_dpsi_val = 0.0
 
-    if force_zero_yaw_angle_flag:
-        final_psi_val = 0.0
-        final_dpsi_val = 0.0
+    # ---------------------------------------------------------------------------- #
+    #             New yaw logic to optionally point to center of circle            #
+    # ---------------------------------------------------------------------------- #
+    if point_to_center:
+        # Calculate yaw to point from the vehicle's position towards the center (cx, cy).
+        # The vector from the vehicle (px, py) to the center (cx, cy) is (cx - px, cy - py).
+        # px = cx + R*cos(theta) -> cx - px = -R*cos(theta)
+        # py = cy + R*sin(theta) -> cy - py = -R*sin(theta)
+        # The angle is atan2(-R*sin(theta), -R*cos(theta)), which simplifies to theta + pi.
+        psi_array = theta_for_pos + math.pi
+        # Wrap the angle to the range [-pi, pi] for consistency
+        final_psi_val = (psi_array + np.pi) % (2 * np.pi) - np.pi
+        final_dpsi_val = omega  # The rate of change of yaw is the trajectory's angular velocity
     else:
-        # Current circle implementation uses fixed yaw from initial_yaw_rad
-        final_psi_val = initial_yaw_rad 
-        final_dpsi_val = 0.0 # As initial_yaw_rad is constant
-        # zero_dpsi_flag doesn't change this fixed yaw logic for dpsi unless tangential yaw was an option
+        # Original fixed-yaw logic
+        if force_zero_yaw_angle_flag:
+            final_psi_val = 0.0
+            final_dpsi_val = 0.0
+        else:
+            final_psi_val = initial_yaw_rad 
+            final_dpsi_val = 0.0 
+            if zero_dpsi_flag:
+                final_dpsi_val = 0.0
 
     trajectory_data[:, 7] = final_psi_val
+    # --------------------------- End of new yaw logic --------------------------- #
     
     if num_cols_output >= 11:
         trajectory_data[:, 8] = -radius * omega**2 * np.cos(theta_for_pos)  
@@ -82,6 +95,7 @@ def generate_circle_data(T, dt, radius, center_x, center_y, alt,
         trajectory_data[:, 14] = final_dpsi_val
     elif num_cols_output == 9 : 
          trajectory_data[:, 8] = final_dpsi_val
+
     return trajectory_data
 
 def generate_setpoint_hold_trajectory(dt, setpoint_x, setpoint_y, setpoint_z, duration, 
@@ -242,6 +256,8 @@ if __name__ == "__main__":
 
     # Circle specific
     parser.add_argument('--radius', type=float, default=2.0, help="Radius for circle trajectory (meters)")
+    parser.add_argument('--point_to_center', action='store_true', 
+                        help="For circle trajectory, if set, the yaw (psi) will point towards the circle center at all times.")
     # Rotating yaw specific
     parser.add_argument('--yaw_rate_dps', type=float, default=15.0, 
                         help="Yaw rotation speed in degrees per second (for setpoint_rotating_yaw). Not used if --zero_dpsi or --force_zero_yaw_angle is active.")
@@ -249,6 +265,8 @@ if __name__ == "__main__":
     parser.add_argument('--fig8_width_L', type=float, default=4.0, help="Width (L, max x-extent from center) for figure-8 trajectory (meters)")
     parser.add_argument('--fig8_height_W', type=float, default=2.0, help="Total Height (W) for figure-8 trajectory (meters)")
 
+    # Make the trajectory twice as long for testing
+    parser.add_argument('--double_duration', action='store_true', help="If set, doubles the specified duration for testing longer trajectories.")
 
     args = parser.parse_args()
 
@@ -296,10 +314,14 @@ if __name__ == "__main__":
         "initial_yaw_rad": initial_yaw_rad_from_args,
         "num_cols_output": args.num_cols,
         "zero_dpsi_flag": args.zero_dpsi,
-        "force_zero_yaw_angle_flag": args.force_zero_yaw_angle
+        "force_zero_yaw_angle_flag": args.force_zero_yaw_angle,
     }
 
     if args.type == 'circle':
+        
+        if (args.zero_dpsi or args.force_zero_yaw_angle) and args.point_to_center:
+            raise ValueError("Conflicting options: --point_to_center cannot be used with --zero_dpsi or --force_zero_yaw_angle.")
+
         DURATION_ONE_LAP = args.duration
         RADIUS = args.radius
         CENTER_X = args.pos_x 
@@ -309,12 +331,14 @@ if __name__ == "__main__":
         OUTPUT_FILENAME = f"circle_r{RADIUS}_t{DURATION_ONE_LAP:.0f}s_alt{ALTITUDE}_initpsi{args.initial_yaw_deg:.0f}deg"
         if args.force_zero_yaw_angle: OUTPUT_FILENAME += "_FORCEZEROPsi"
         elif args.zero_dpsi: OUTPUT_FILENAME += "_zeroDPsi"
+        elif args.point_to_center: OUTPUT_FILENAME += "_pointToCenter"
         OUTPUT_FILENAME += f"_{TARGET_RATE:.0f}hz_{args.num_cols}col.npy"
 
         print(f"Generating {args.num_cols}-column circle trajectory...")
         trajectory_array = generate_circle_data(
             T=DURATION_ONE_LAP, radius=RADIUS,
             center_x=CENTER_X, center_y=CENTER_Y, alt=ALTITUDE,
+            point_to_center=args.point_to_center,
             **common_args_for_gen
         )
     
@@ -375,6 +399,34 @@ if __name__ == "__main__":
         )
     else:
         print(f"Unknown trajectory type: {args.type}")
+
+    # ---------------- Doubling the trajectory length if requested --------------- #
+    if args.double_duration and trajectory_array is not None and trajectory_array.shape[0] > 0:
+        print("Info: --double_duration is active. Doubling the trajectory.")
+        
+        second_lap_array = trajectory_array.copy()
+        
+        # Calculate the time shift required for the second lap.
+        # This ensures the time is continuous.
+        time_shift = trajectory_array[-1, 0] + DT
+        second_lap_array[:, 0] += time_shift
+        
+        # Special handling for rotating yaw to ensure the angle continues to increase/decrease
+        # instead of resetting to the initial angle.
+        if args.type == 'setpoint_rotating_yaw' and not args.force_zero_yaw_angle and not args.zero_dpsi:
+            yaw_rate_rps = np.deg2rad(args.yaw_rate_dps)
+            psi_shift = yaw_rate_rps * time_shift
+            second_lap_array[:, 7] += psi_shift
+            # Wrap to [-pi, pi]
+            second_lap_array[:, 7] = (second_lap_array[:, 7] + np.pi) % (2 * np.pi) - np.pi
+
+        # Stack the original and the time-shifted second lap
+        trajectory_array = np.vstack((trajectory_array, second_lap_array))
+        
+        # Update filename to reflect the change
+        base, ext = os.path.splitext(OUTPUT_FILENAME)
+        OUTPUT_FILENAME = base + "_2laps" + ext
+
 
     if trajectory_array is not None and trajectory_array.shape[0] > 0 :
         filepath = os.path.join(absolute_output_dir, OUTPUT_FILENAME)

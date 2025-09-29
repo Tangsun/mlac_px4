@@ -23,9 +23,7 @@ except ImportError:
 from geometry_msgs.msg import PoseStamped as PoseStampedMsg
 from geometry_msgs.msg import TwistStamped as TwistStampedMsg
 from mlac_msgs.msg import ControllerLog as ControllerLogMsg
-# If mlac_sim.helpers is in your python path when running this script, you can use it:
-# from mlac_sim.helpers import get_rpy # Assuming get_rpy returns a Vector3-like object or tuple (r,p,y) in radians
-# Otherwise, we define a local version:
+from mavros_msgs.msg import AttitudeTarget as AttitudeTargetMsg # Import for commanded rates
 
 def quaternion_to_rotation_matrix(q_np: np.ndarray) -> np.ndarray:
     w, x, y, z = q_np
@@ -139,6 +137,40 @@ def plot_rpy_comparison(actual_time_rel, actual_roll, actual_pitch, actual_yaw,
     axs_rpy[-1].set_xlabel(time_base_label)
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
+def plot_bodyrate_comparison(actual_time_rel, actual_p, actual_q, actual_r,
+                             cmd_time_rel, cmd_p, cmd_q, cmd_r,
+                             bag_file_name, time_base_label):
+    if not (actual_time_rel.size > 0) and not (cmd_time_rel.size > 0):
+        print("Skipping Bodyrate plot: insufficient data.")
+        return
+
+    fig, axs = plt.subplots(3, 1, figsize=(15, 10), sharex=True)
+    fig.suptitle(f'Body Rate Comparison vs. Time (Degrees/sec)\nBag: {os.path.basename(bag_file_name)}', fontsize=14)
+    
+    # P (Roll Rate)
+    axs[0].plot(actual_time_rel, np.rad2deg(actual_p), label='Actual P (from Vel Topic)')
+    axs[0].plot(cmd_time_rel, np.rad2deg(cmd_p), label='Commanded P (from Setpoint Topic)', linestyle='--')
+    axs[0].set_ylabel('Roll Rate (deg/s)')
+    axs[0].legend()
+    axs[0].grid(True)
+
+    # Q (Pitch Rate)
+    axs[1].plot(actual_time_rel, np.rad2deg(actual_q), label='Actual Q (from Vel Topic)')
+    axs[1].plot(cmd_time_rel, np.rad2deg(cmd_q), label='Commanded Q (from Setpoint Topic)', linestyle='--')
+    axs[1].set_ylabel('Pitch Rate (deg/s)')
+    axs[1].legend()
+    axs[1].grid(True)
+
+    # R (Yaw Rate)
+    axs[2].plot(actual_time_rel, np.rad2deg(actual_r), label='Actual R (from Vel Topic)')
+    axs[2].plot(cmd_time_rel, np.rad2deg(cmd_r), label='Commanded R (from Setpoint Topic)', linestyle='--')
+    axs[2].set_ylabel('Yaw Rate (deg/s)')
+    axs[2].legend()
+    axs[2].grid(True)
+    
+    axs[2].set_xlabel(time_base_label)
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+
 
 def main(args):
     if not os.path.exists(args.bag_file):
@@ -155,7 +187,7 @@ def main(args):
         
     topic_types = {meta.name: meta.type for meta in reader.get_all_topics_and_types()}
     
-    critical_topics = [args.pose_topic, args.velocity_topic, args.control_log_topic]
+    critical_topics = [args.pose_topic, args.velocity_topic, args.control_log_topic, args.attitude_setpoint_topic]
     for topic in critical_topics:
         if topic not in topic_types:
             print(f"Error: Critical Topic '{topic}' not found in bag. Available: {list(topic_types.keys())}")
@@ -163,11 +195,16 @@ def main(args):
             
     bag_pose_times, bag_px, bag_py, bag_pz, bag_qw, bag_qx, bag_qy, bag_qz = [[] for _ in range(8)]
     bag_vel_body_times, bag_vx_body, bag_vy_body, bag_vz_body = [[] for _ in range(4)]
+    # Add lists for actual angular rates
+    bag_wx_body, bag_wy_body, bag_wz_body = [], [], []
+    
     bag_log_times, bag_log_px_ref, bag_log_py_ref, bag_log_pz_ref = [[] for _ in range(4)]
     bag_log_vx_ref, bag_log_vy_ref, bag_log_vz_ref = [[] for _ in range(3)]
     bag_log_q_ref_w, bag_log_q_ref_x, bag_log_q_ref_y, bag_log_q_ref_z = [[] for _ in range(4)]
     
-    # Lists for RPY data
+    # Add lists for commanded body rates
+    bag_cmd_br_times, bag_cmd_p, bag_cmd_q, bag_cmd_r = [], [], [], []
+
     bag_actual_roll, bag_actual_pitch, bag_actual_yaw = [], [], []
     bag_log_roll_ref, bag_log_pitch_ref, bag_log_yaw_ref = [], [], []
 
@@ -191,22 +228,30 @@ def main(args):
             bag_qx.append(msg.pose.orientation.x)
             bag_qy.append(msg.pose.orientation.y)
             bag_qz.append(msg.pose.orientation.z)
-            # Convert actual orientation to RPY (degrees)
-            roll, pitch, yaw = quaternion_to_rpy_degrees(
-                msg.pose.orientation.w, 
-                msg.pose.orientation.x, 
-                msg.pose.orientation.y, 
-                msg.pose.orientation.z
-            )
+            roll, pitch, yaw = quaternion_to_rpy_degrees(msg.pose.orientation.w, msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z)
             bag_actual_roll.append(roll)
             bag_actual_pitch.append(pitch)
             bag_actual_yaw.append(yaw)
+        
         elif topic == args.velocity_topic:
             msg = deserialize_message(data, TwistStampedMsg)
             bag_vel_body_times.append(ros_time_sec)
+            # Linear velocity
             bag_vx_body.append(msg.twist.linear.x)
             bag_vy_body.append(msg.twist.linear.y)
             bag_vz_body.append(msg.twist.linear.z)
+            # Angular velocity (actual body rates)
+            bag_wx_body.append(msg.twist.angular.x) # p
+            bag_wy_body.append(msg.twist.angular.y) # q
+            bag_wz_body.append(msg.twist.angular.z) # r
+
+        elif topic == args.attitude_setpoint_topic:
+            msg = deserialize_message(data, AttitudeTargetMsg)
+            bag_cmd_br_times.append(ros_time_sec)
+            bag_cmd_p.append(msg.body_rate.x)
+            bag_cmd_q.append(msg.body_rate.y)
+            bag_cmd_r.append(msg.body_rate.z)
+
         elif topic == args.control_log_topic:
             msg = deserialize_message(data, ControllerLogMsg)
             bag_log_times.append(ros_time_sec)
@@ -220,7 +265,6 @@ def main(args):
             bag_log_q_ref_x.append(msg.reference_orientation_desired.x)
             bag_log_q_ref_y.append(msg.reference_orientation_desired.y)
             bag_log_q_ref_z.append(msg.reference_orientation_desired.z)
-            # Append new reference RPY fields (assuming they are in radians in the msg)
             bag_log_roll_ref.append(math.degrees(msg.reference_roll))
             bag_log_pitch_ref.append(math.degrees(msg.reference_pitch))
             bag_log_yaw_ref.append(math.degrees(msg.reference_yaw))
@@ -237,10 +281,19 @@ def main(args):
     time_base_label = f'Time since Bag Start (s) (Bag Start ROS Time: {first_timestamp_sec:.2f}s)'
     print(f"Bag data read. {time_base_label}")
 
+    # Convert lists to numpy arrays
     bag_pose_times = np.array(bag_pose_times); bag_px = np.array(bag_px); bag_py = np.array(bag_py); bag_pz = np.array(bag_pz)
     bag_orientations = np.array([bag_qw, bag_qx, bag_qy, bag_qz]).T if bag_qw else np.array([])
+    bag_vel_body_times = np.array(bag_vel_body_times);
     
-    bag_vel_body_times = np.array(bag_vel_body_times); bag_vx_body = np.array(bag_vx_body); bag_vy_body = np.array(bag_vy_body); bag_vz_body = np.array(bag_vz_body)
+    # Actual Body Rates
+    bag_wx_body = np.array(bag_wx_body); bag_wy_body = np.array(bag_wy_body); bag_wz_body = np.array(bag_wz_body)
+
+    # Commanded Body Rates
+    bag_cmd_br_times = np.array(bag_cmd_br_times);
+    bag_cmd_p = np.array(bag_cmd_p); bag_cmd_q = np.array(bag_cmd_q); bag_cmd_r = np.array(bag_cmd_r);
+
+    # Log Data
     bag_log_times = np.array(bag_log_times); bag_log_px_ref = np.array(bag_log_px_ref); bag_log_py_ref = np.array(bag_log_py_ref); bag_log_pz_ref = np.array(bag_log_pz_ref)
     bag_log_vx_ref = np.array(bag_log_vx_ref); bag_log_vy_ref = np.array(bag_log_vy_ref); bag_log_vz_ref = np.array(bag_log_vz_ref)
     
@@ -261,14 +314,14 @@ def main(args):
     bag_vx_world, bag_vy_world, bag_vz_world = [], [], []
     actual_vel_time_rel = np.array([])
     if len(bag_vel_body_times) > 0 and len(bag_pose_times) > 0:
-        temp_vel_times_rel = bag_vel_body_times - first_timestamp_sec
+        actual_vel_time_rel = bag_vel_body_times - first_timestamp_sec
+        bag_vx_body = np.array(bag_vx_body); bag_vy_body = np.array(bag_vy_body); bag_vz_body = np.array(bag_vz_body)
         for i, t_vel_abs in enumerate(bag_vel_body_times):
             pose_idx_original_array = np.argmin(np.abs(bag_pose_times - t_vel_abs))
             q_for_vel = bag_orientations[pose_idx_original_array, :]
             v_body = np.array([bag_vx_body[i], bag_vy_body[i], bag_vz_body[i]])
             R_body_to_world = quaternion_to_rotation_matrix(q_for_vel); v_world = R_body_to_world @ v_body
             bag_vx_world.append(v_world[0]); bag_vy_world.append(v_world[1]); bag_vz_world.append(v_world[2])
-        actual_vel_time_rel = temp_vel_times_rel
         actual_vx_world_filt = np.array(bag_vx_world); actual_vy_world_filt = np.array(bag_vy_world); actual_vz_world_filt = np.array(bag_vz_world)
         print(f"  Actual_velocity data points: {len(actual_vel_time_rel)}")
     else: actual_vx_world_filt, actual_vy_world_filt, actual_vz_world_filt = [np.array([])]*3
@@ -334,14 +387,18 @@ def main(args):
                                args.bag_file, time_base_label)
     
     print("Plotting RPY Comparison...")
-    plot_rpy_comparison(
-        actual_time_rel,
-        bag_actual_roll, bag_actual_pitch, bag_actual_yaw,
-        cmd_ref_time_rel,
-        bag_log_roll_ref, bag_log_pitch_ref, bag_log_yaw_ref,
+    plot_rpy_comparison(actual_time_rel, bag_actual_roll, bag_actual_pitch, bag_actual_yaw,
+                        cmd_ref_time_rel, bag_log_roll_ref, bag_log_pitch_ref, bag_log_yaw_ref,
+                        args.bag_file, time_base_label)
+    
+    print("Plotting Body Rate Comparison...")
+    cmd_br_time_rel = bag_cmd_br_times - first_timestamp_sec if len(bag_cmd_br_times) > 0 else np.array([])
+    plot_bodyrate_comparison(
+        actual_vel_time_rel, bag_wx_body, bag_wy_body, bag_wz_body,
+        cmd_br_time_rel, bag_cmd_p, bag_cmd_q, bag_cmd_r,
         args.bag_file, time_base_label
     )
-    
+
     plt.show()
 
 if __name__ == '__main__':
@@ -350,6 +407,7 @@ if __name__ == '__main__':
     parser.add_argument('--pose_topic', type=str, default='/mavros/local_position/pose', help='Topic for vehicle pose.')
     parser.add_argument('--velocity_topic', type=str, default='/mavros/local_position/velocity_body', help='Topic for vehicle velocity (body frame).')
     parser.add_argument('--control_log_topic', type=str, default='/mlac_mission_node/control_log', help='Topic for controller log.')
+    parser.add_argument('--attitude_setpoint_topic', type=str, default='/mavros/setpoint_raw/attitude', help='Topic for attitude/rate commands.')
     parser.add_argument('--storage_id', type=str, default='sqlite3', help='Rosbag storage ID.')
     cli_args = parser.parse_args()
     main(cli_args)

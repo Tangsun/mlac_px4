@@ -150,7 +150,8 @@ if __name__ == "__main__":
         # default = "N100_T30.0_spline_11col_zero_yaw.npy",
         # default="figure8_L4.0_W2.0_t10s_alt2.0_initpsi0deg_FORCEZEROPsi_50hz_11col.npy",
         # default="setpoint_rot_yaw_x0.0_y0.0_z2.0_t20.0s_initpsi0deg_rate15dps_50hz_8col.npy",
-        default="setpoint_hold_x0.0_y0.0_z2.0_t20.0s_psi60deg_50hz_11col.npy",
+        # default="circle_r2.0_t20s_alt1.5_initpsi0deg_pointToCenter_50hz_11col.npy",
+        default="circle_r2.0_t20s_alt1.5_initpsi0deg_pointToCenter_50hz_11col_2laps.npy",
         help="Name of the .npy trajectory file in 'mlac_sim/traj_data/' folder to be used by mlac_mission_node."
     )
     parser.add_argument(
@@ -173,9 +174,10 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--bodyrate_kp",
+        nargs='+',  # This is the key change
         type=float,
-        default=0.0,
-        help="Proportional gains for bodyrate control."
+        default=[0.0, 0.0, 0.0], # A default list is good practice
+        help="Proportional gains for bodyrate control (e.g., --bodyrate_kp 5.0 5.0 4.0)."
     )
     parser.add_argument(
         "--world_name",
@@ -200,6 +202,12 @@ if __name__ == "__main__":
     controller_type = args.controller_type
     control_level = args.control_level
     bodyrate_kp = args.bodyrate_kp
+    bodyrate_kp_str = str(bodyrate_kp)
+
+    # print("\n===============================================")
+    # print(f"Bodyrate Kp values: {bodyrate_kp}")
+    # print(f"Bodyrate Kp string for command: {bodyrate_kp_str}")
+    # print("===============================================\n")
 
     session = "mlac_sim_main" 
     
@@ -238,7 +246,7 @@ if __name__ == "__main__":
         f"ros2 run mlac_sim mlac_mission_node --ros-args \
             -p controller_type:='{controller_type}' \
             -p control_level:='{control_level}' \
-            -p bodyrate_kp:={bodyrate_kp} \
+            -p bodyrate_kp:='{bodyrate_kp_str}' \
             -p trajectory_file_name:='{trajectory_file_name}' \
             -p trajectory_index:={trajectory_index} ; "
         f"echo 'mlac_mission_node pane exited.'; exec bash"

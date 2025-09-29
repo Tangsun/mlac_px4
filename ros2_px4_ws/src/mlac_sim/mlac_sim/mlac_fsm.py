@@ -118,6 +118,7 @@ class MissionFiniteStateMachine:
         return dist_sq < self.pos_reached_thresh_sq
 
     def set_trajectory_data(self, trajectory_data: np.ndarray | None):
+        
         self.trajectory_data = trajectory_data
         if self.trajectory_data is not None and self.trajectory_data.shape[0] > 0:
             self.is_trajectory_loaded_fsm = True

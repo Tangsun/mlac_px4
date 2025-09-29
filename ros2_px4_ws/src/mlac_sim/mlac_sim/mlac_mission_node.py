@@ -38,7 +38,7 @@ class MlacMissionNode(Node):
         self.declare_parameter('controller_type', 'pid', ParameterDescriptor(description="Controller type: 'pid', 'coml', or 'coml_debug'"))
         self.declare_parameter('control_loop_rate_hz', 50.0, ParameterDescriptor(description="Rate of the main control loop"))
         self.declare_parameter('control_level', 'bodyrate', ParameterDescriptor(description="Control level: 'attitude' or 'bodyrate'"))
-        self.declare_parameter('bodyrate_kp', 0.3, ParameterDescriptor(description="Proportional gain for bodyrate controller (if using 'bodyrate' control level)"))
+        self.declare_parameter('bodyrate_kp', [0.3, 0.3, 0.3], ParameterDescriptor(description="Proportional gain for bodyrate controller (if using 'bodyrate' control level)"))
         self.declare_parameter('trajectory_file_name', 'circle_trajectory_8col_50hz.npy', ParameterDescriptor(description="Name of the .npy trajectory file in 'mlac_sim/traj_data/' folder"))
         self.declare_parameter('trajectory_index', 0, ParameterDescriptor(description="Index of the trajectory to use if the .npy file contains multiple trajectories. Default is 0."))
         # self.declare_parameter('vehicle_mass', 4.562, ParameterDescriptor(description="Vehicle mass (kg)"))
@@ -69,9 +69,13 @@ class MlacMissionNode(Node):
         # ------------------------- END NEW DEBUG PARAMETERS ------------------------- #
 
         # ------------------- New Mission Logic Parameters for FSM ------------------- #
-        self.declare_parameter('initial_hover_position', [1.3, -2.8, 1.5], ParameterDescriptor(description="Initial hover position [x, y, z] (m)"))
-        self.declare_parameter('final_hover_position', [1.3, -2.8, 1.5], ParameterDescriptor(description="Final hover position [x, y, z] (m)"))
-        self.declare_parameter('landing_position', [1.3, -2.8, 0.732], ParameterDescriptor(description="Landing target position [x, y, z] (m), z is target altitude before disarm"))
+        # self.declare_parameter('initial_hover_position', [1.3, -2.8, 1.5], ParameterDescriptor(description="Initial hover position [x, y, z] (m)"))
+        # self.declare_parameter('final_hover_position', [1.3, -2.8, 1.5], ParameterDescriptor(description="Final hover position [x, y, z] (m)"))
+        # self.declare_parameter('landing_position', [1.3, -2.8, 0.732], ParameterDescriptor(description="Landing target position [x, y, z] (m), z is target altitude before disarm"))
+        self.declare_parameter('initial_hover_position', [0.0, -2.0, 1.5], ParameterDescriptor(description="Initial hover position [x, y, z] (m)"))
+        self.declare_parameter('final_hover_position', [0.0, -2.0, 1.5], ParameterDescriptor(description="Final hover position [x, y, z] (m)"))
+        self.declare_parameter('landing_position', [0.0, -2.0, 0.0], ParameterDescriptor(description="Landing target position [x, y, z] (m), z is target altitude before disarm"))
+        
         self.declare_parameter('position_reached_threshold', 0.2, ParameterDescriptor(description="Threshold to consider a position reached (m)"))
         self.declare_parameter('hover_duration_sec', 10.0, ParameterDescriptor(description="Duration to hover at initial/final points (s)"))    # NOTE(KAI): Increased hover duration for better thrust observation
         self.declare_parameter('landing_descent_rate_mps', 0.3, ParameterDescriptor(description="Descent rate for landing (m/s positive value)"))
@@ -111,14 +115,17 @@ class MlacMissionNode(Node):
         if self.control_level not in ['attitude', 'bodyrate']:
             raise ValueError("control_level must be 'attitude' or 'bodyrate'")
         if self.control_level == 'bodyrate':
-            bodyrate_kp = self.get_parameter('bodyrate_kp').get_parameter_value().double_value
-            if bodyrate_kp <= 0:
-                raise ValueError("bodyrate_kp must be positive.")
-            self.bodyrate_converter = BodyRateConverter(kp=bodyrate_kp)
+            self.bodyrate_kp = self.get_parameter('bodyrate_kp').get_parameter_value().double_array_value
+            self.bodyrate_kp = np.array(self.bodyrate_kp, dtype=np.float64)
+            if self.bodyrate_kp is None or not isinstance(self.bodyrate_kp, (list, np.ndarray)) or len(self.bodyrate_kp) != 3:
+                raise ValueError("bodyrate_kp must be a list or array of 3 positive values.")
+            if any(kp <= 0 for kp in self.bodyrate_kp):
+                raise ValueError("All bodyrate_kp values must be positive.")
+            self.bodyrate_converter = BodyRateConverter(kp=self.bodyrate_kp)
             # The corrected print statement
             print(f'\n+++++++++++++++++++++++++++++++++++++++++++++\n'
                 f'{"Using bodyrate control level.":^45}\n'
-                f' Bodyrate Kp: {bodyrate_kp:.3f}\n'
+                f' Bodyrate Kp: {self.bodyrate_kp} \n'
                 f'+++++++++++++++++++++++++++++++++++++++++++++\n')
         else:
             print(f'\n+++++++++++++++++++++++++++++++++++++++++++++\n'
