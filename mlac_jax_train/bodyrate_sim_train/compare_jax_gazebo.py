@@ -171,18 +171,19 @@ def extract_filtered_rosbag_data(rosbag_path, pose_topic, velocity_topic, contro
     return pose_data, vel_data, cmd_data, initial_pose_msg
 
 
-# --- JAX Simulation Functions ---
-def npy_reference_func(t, ts_ref, r_ref, dr_ref, ddr_ref):
+# --- JAX Simulation Functions (SMC) ---
+def npy_reference_func(t, ts_ref, r_ref, dr_ref, ddr_ref, yaw_ref):
     r = jnp.array([jnp.interp(t, ts_ref, r_ref[:, i]) for i in range(3)])
     dr = jnp.array([jnp.interp(t, ts_ref, dr_ref[:, i]) for i in range(3)])
     ddr = jnp.array([jnp.interp(t, ts_ref, ddr_ref[:, i]) for i in range(3)])
-    return r, dr, ddr
+    yaw = jnp.interp(t, ts_ref, yaw_ref)
+    return r, dr, ddr, yaw
 
 def simulation_ode(z, t, k_R, K_mat, Lambda_mat, reference_func, dt):
     x, R_flatten, Omega_state = z
     q, dq = x[:3], x[3:]
     R = R_flatten.reshape((3, 3))
-    r, dr, ddr = reference_func(t)
+    r, dr, ddr, yaw_d = reference_func(t)
     e, de = q - r, dq - dr
     s = de + Lambda_mat @ e
     v, dv = dr - Lambda_mat @ e, ddr - Lambda_mat @ de
@@ -191,7 +192,9 @@ def simulation_ode(z, t, k_R, K_mat, Lambda_mat, reference_func, dt):
     u_d = jnp.linalg.solve(B, tau)
     f_d = jnp.linalg.norm(u_d)
     b_3d = u_d / (f_d + 1e-6)
-    b_1d_desired = dr / (jnp.linalg.norm(dr) + 1e-6)
+    
+    b_1d_desired = jnp.array([jnp.cos(yaw_d), jnp.sin(yaw_d), 0.])
+    # b_1d_desired = dr / (jnp.linalg.norm(dr) + 1e-6)
     b_2d_temp = jnp.cross(b_3d, b_1d_desired)
     b_2d = b_2d_temp / (jnp.linalg.norm(b_2d_temp) + 1e-6)
     b_1d = jnp.cross(b_2d, b_3d)
@@ -206,9 +209,9 @@ def simulation_ode(z, t, k_R, K_mat, Lambda_mat, reference_func, dt):
     return dx, dR.flatten(), dOmega
 
 @partial(jax.jit, static_argnums=(5, 7))
-def jax_flatten_wrapper(z_flat, t, k_R, K_mat, Lambda_mat, reference_func, dt, z_unravel_func, ts_ref, r_ref, dr_ref, ddr_ref):
+def jax_flatten_wrapper(z_flat, t, k_R, K_mat, Lambda_mat, reference_func, dt, z_unravel_func, ts_ref, r_ref, dr_ref, ddr_ref, yaw_ref):
     z_tree = z_unravel_func(z_flat)
-    ref_func_partial = partial(reference_func, ts_ref=ts_ref, r_ref=r_ref, dr_ref=dr_ref, ddr_ref=ddr_ref)
+    ref_func_partial = partial(reference_func, ts_ref=ts_ref, r_ref=r_ref, dr_ref=dr_ref, ddr_ref=ddr_ref, yaw_ref=yaw_ref)
     dz_tree = simulation_ode(z_tree, t, k_R, K_mat, Lambda_mat, ref_func_partial, dt)
     return jnp.concatenate(jax.tree_util.tree_leaves(dz_tree))
 
@@ -217,7 +220,7 @@ def run_jax_simulation(gt_data, initial_pose_msg, gains):
     """
     Runs the JAX simulation using the provided ground truth and initial conditions.
     """
-    ts_ref, r_ref, dr_ref, ddr_ref = gt_data
+    ts_ref, r_ref, dr_ref, ddr_ref, yaw_ref = gt_data
     k_R, K_mat, Lambda_mat = gains
     
     T_FINAL = ts_ref[-1]
@@ -239,7 +242,7 @@ def run_jax_simulation(gt_data, initial_pose_msg, gains):
     z0_flat, z_unravel_func = jax.flatten_util.ravel_pytree(z0_tree)
 
     print("\n--- Starting JAX Simulation ---")
-    ode_for_solver = partial(jax_flatten_wrapper, k_R=k_R, K_mat=K_mat, Lambda_mat=Lambda_mat, reference_func=npy_reference_func, dt=DT, z_unravel_func=z_unravel_func, ts_ref=jnp.array(ts_ref), r_ref=jnp.array(r_ref), dr_ref=jnp.array(dr_ref), ddr_ref=jnp.array(ddr_ref))
+    ode_for_solver = partial(jax_flatten_wrapper, k_R=k_R, K_mat=K_mat, Lambda_mat=Lambda_mat, reference_func=npy_reference_func, dt=DT, z_unravel_func=z_unravel_func, ts_ref=jnp.array(ts_ref), r_ref=jnp.array(r_ref), dr_ref=jnp.array(dr_ref), ddr_ref=jnp.array(ddr_ref), yaw_ref=jnp.array(yaw_ref))
     
     z_history_flat, ts_jax = odeint_fixed_step(ode_for_solver, z0_flat, 0.0, T_FINAL, DT)
     
@@ -253,13 +256,148 @@ def run_jax_simulation(gt_data, initial_pose_msg, gains):
     return ts_jax, q_jax, euler_jax, Omega_hist # <-- MODIFIED: Return Omega_hist
 
 
+# --- JAX Simulation Functions (PID Controller) ---
+
+def simulation_ode_pid(z, t, kr, kp, ki, kd, integral_limit, reference_func, dt):
+    """
+    Simulates the drone dynamics using a PID position controller.
+    The state 'z' is now (x, R_flatten, Omega_state, integral_error).
+    """
+    x, R_flatten, Omega_state, integral_error = z
+    q, dq = x[:3], x[3:]
+    R = R_flatten.reshape((3, 3))
+
+    r, dr, ddr, yaw_d = reference_func(t)
+
+    # PID Controller Logic
+    pos_err = q - r
+    vel_err = dq - dr
+
+    # Update and clamp integral error
+    new_integral_error = integral_error + pos_err * dt
+    new_integral_error = jnp.clip(new_integral_error, -integral_limit, integral_limit)
+
+    # Calculate desired acceleration based on PID law
+    m, g_acc = 2.0, 9.81
+    thrust = kp * pos_err + ki * new_integral_error + kd * vel_err
+
+    # Convert desired acceleration to desired force (u_d)
+    u_d = m * (ddr + jnp.array([0.0, 0.0, g_acc])) - thrust
+
+    # --- Attitude and Dynamics (same as before) ---
+    f_d = jnp.linalg.norm(u_d)
+    b_3d = u_d / (f_d + 1e-6)
+    x_c = jnp.array([jnp.cos(yaw_d), jnp.sin(yaw_d), 0.0])
+    b_2d_temp = jnp.cross(b_3d, x_c)
+    b_2d = b_2d_temp / (jnp.linalg.norm(b_2d_temp) + 1e-6)
+    b_1d = jnp.cross(b_2d, b_3d)
+    R_d = jnp.column_stack((b_1d, b_2d, b_3d))
+
+    e_R = 0.5 * vee(R_d.T @ R - R.T @ R_d)
+    # NOTE: For PID, we assume k_R is implicitly part of the PX4 inner loop
+    # and not explicitly set in the same way. We use a placeholder here.
+    k_R_pid = kr
+    Omega_cmd = -k_R_pid * e_R
+
+    dR = R @ hat(Omega_cmd)
+    u_applied = f_d * R @ jnp.array([0., 0., 1.])
+    ddq = (u_applied - m * jnp.array([0., 0., g_acc])) / m
+    dx = jnp.concatenate((dq, ddq))
+    dOmega = (Omega_cmd - Omega_state) / dt
+
+    # The derivative of the integral error is just the position error
+    dIntegral_error = pos_err
+
+    return dx, dR.flatten(), dOmega, dIntegral_error
+
+
+@partial(jax.jit, static_argnums=(7, 9))
+def jax_flatten_wrapper_pid(z_flat, t, kr, kp, ki, kd, integral_limit, reference_func, dt, z_unravel_func, ts_ref, r_ref, dr_ref, ddr_ref, yaw_ref):
+    z_tree = z_unravel_func(z_flat)
+    ref_func_partial = partial(reference_func, ts_ref=ts_ref, r_ref=r_ref, dr_ref=dr_ref, ddr_ref=ddr_ref, yaw_ref=yaw_ref)
+    dz_tree = simulation_ode_pid(z_tree, t, kr, kp, ki, kd, integral_limit, ref_func_partial, dt)
+    return jnp.concatenate(jax.tree_util.tree_leaves(dz_tree))
+
+def run_jax_simulation_pid(gt_data, initial_pose_msg, gains):
+    """
+    Runs the JAX simulation using the PID controller.
+    """
+    ts_ref, r_ref, dr_ref, ddr_ref, yaw_ref = gt_data
+    kr, kp, ki, kd, integral_limit = gains
+
+    T_FINAL = ts_ref[-1]
+    DT = ts_ref[1] - ts_ref[0]
+
+    # --- Initial Conditions ---
+    if initial_pose_msg:
+        p = initial_pose_msg.pose.position
+        o = initial_pose_msg.pose.orientation
+        r0_jax = jnp.array([p.x, p.y, p.z])
+        q_init = np.array([o.x, o.y, o.z, o.w])
+        R0_jax = jnp.array(Rotation.from_quat(q_init).as_matrix())
+    else:
+        print("Warning: No initial pose from rosbag. Using trajectory file for initial conditions.")
+        r0_jax, R0_jax = jnp.array(r_ref[0]), jnp.eye(3)
+
+    # --- Add integral error to the initial state tree ---
+    dr0_jax = jnp.array(dr_ref[0])
+    x0_jax = jnp.concatenate([r0_jax, dr0_jax])
+    z0_tree = (x0_jax, R0_jax.flatten(), jnp.zeros(3), jnp.zeros(3)) # (x, R, Omega, integral_error)
+    z0_flat, z_unravel_func = jax.flatten_util.ravel_pytree(z0_tree)
+
+    print("\n--- Starting JAX Simulation (PID Controller) ---")
+    ode_for_solver = partial(jax_flatten_wrapper_pid, kr=kr,
+                             kp=kp, ki=ki, kd=kd, integral_limit=integral_limit,
+                             reference_func=npy_reference_func, 
+                             dt=DT, 
+                             z_unravel_func=z_unravel_func, 
+                             ts_ref=jnp.array(ts_ref), 
+                             r_ref=jnp.array(r_ref), 
+                             dr_ref=jnp.array(dr_ref), 
+                             ddr_ref=jnp.array(ddr_ref),
+                             yaw_ref=jnp.array(yaw_ref))
+
+    z_history_flat, ts_jax = odeint_fixed_step(ode_for_solver, z0_flat, 0.0, T_FINAL, DT)
+
+    z_history = jax.vmap(z_unravel_func)(z_history_flat)
+    x_hist, R_flat_hist, w_jax_sim, _ = z_history # Unpack and ignore integral error history
+    q_jax = x_hist[:, :3]
+    R_jax = R_flat_hist.reshape(-1, 3, 3)
+    euler_jax = Rotation.from_matrix(np.asarray(R_jax)).as_euler('xyz', degrees=True)
+    print("--- JAX Simulation Complete ---")
+
+    return ts_jax, q_jax, euler_jax, w_jax_sim
+
+def get_gt_reference_attitude(gt_data):
+    """
+    Calculates the ground truth attitude (Euler angles) from the trajectory file.
+    """
+    ts_ref, r_ref, dr_ref, ddr_ref, yaw_ref = gt_data
+
+    @jax.jit
+    def get_desired_attitude(r, dr, ddr, yaw_d):
+        H, C, g, B = prior(r, dr) 
+        tau = H @ ddr + C @ dr + g
+        u_d = jnp.linalg.solve(B, tau)
+        f_d = jnp.linalg.norm(u_d)
+        b_3d = u_d / (f_d + 1e-6)
+        x_c = jnp.array([jnp.cos(yaw_d), jnp.sin(yaw_d), 0.0])
+        b_2d_temp = jnp.cross(b_3d, x_c)
+        b_2d = b_2d_temp / (jnp.linalg.norm(b_2d_temp) + 1e-6)
+        b_1d = jnp.cross(b_2d, b_3d)
+        return jnp.column_stack((b_1d, b_2d, b_3d))
+
+    R_d_hist = jax.vmap(get_desired_attitude)(r_ref, dr_ref, ddr_ref, yaw_ref)
+    euler_gt = Rotation.from_matrix(np.asarray(R_d_hist)).as_euler('xyz', degrees=True)
+    return euler_gt
+
 # --- Plotting Function ---
 def plot_and_save_comparison(gt_data, gazebo_data, jax_data, cmd_data, output_dir="bodyrate_figs"):
     """
     Plots all trajectories and angular states, and saves the figures.
     """
     # --- Unpack the data tuples ---
-    ts_ref, r_ref = gt_data
+    ts_ref, r_ref, euler_gt = gt_data
     (t_gazebo_pose, q_gazebo, euler_gazebo), (t_gazebo_vel, w_gazebo) = gazebo_data
     ts_jax, q_jax, euler_jax, w_jax = jax_data
     (t_cmd_att, euler_cmd), (t_cmd_vel, w_cmd) = cmd_data
@@ -300,6 +438,7 @@ def plot_and_save_comparison(gt_data, gazebo_data, jax_data, cmd_data, output_di
     fig_att, axs_att = plt.subplots(3, 1, figsize=(15, 10), sharex=True)
     angle_labels = ['Roll', 'Pitch', 'Yaw']
     for i in range(3):
+        axs_att[i].plot(ts_ref, euler_gt[:, i], 'k-.', label=f'Ground Truth Ref {angle_labels[i]}') # <-- ADD THIS LINE
         axs_att[i].plot(t_cmd_att, euler_cmd[:, i], 'r--', label=f'Command (Rosbag) {angle_labels[i]}') # <-- NEW
         axs_att[i].plot(ts_jax, euler_jax[:, i], 'b-', label=f'JAX {angle_labels[i]}')
         axs_att[i].plot(t_gazebo_pose, euler_gazebo[:, i], 'g:', label=f'Gazebo {angle_labels[i]}')
@@ -337,6 +476,8 @@ if __name__ == '__main__':
     parser.add_argument('--control_log_topic', type=str, default="/mlac_mission_node/control_log", help="Control log topic for FSM state.")
     parser.add_argument('--pose_topic', type=str, default="/mavros/local_position/pose", help="Pose topic for position tracking.")
     parser.add_argument('--attitude_setpoint_topic', type=str, default="/mavros/setpoint_raw/attitude", help="Attitude/rate command topic.")
+    
+    parser.add_argument('--controller_type', type=str, default="smc", choices=['smc', 'pid'], help="Type of controller to use in JAX sim ('smc' or 'pid').")
 
     parser.add_argument('--mass', type=float, help="Mass of the quadrotor in kg.", default=2.0)
     # Add other arguments as needed (pose_topic, gains, etc.)
@@ -352,38 +493,53 @@ if __name__ == '__main__':
 
     if pose_data[0] is not None and pose_data[0].size > 0:
         # --- Step 2: Run JAX Simulation ---
-        gt_data_traj = (np.load(args.traj_file)[:, 0], 
-                        np.load(args.traj_file)[:, 1:4], 
-                        np.load(args.traj_file)[:, 4:7], 
-                        np.load(args.traj_file)[:, 8:11])
+        traj_data = np.load(args.traj_file)
+        gt_data_traj = (traj_data[:, 0], 
+                        traj_data[:, 1:4], 
+                        traj_data[:, 4:7], 
+                        traj_data[:, 8:11], 
+                        traj_data[:, 7])
+        euler_gt = get_gt_reference_attitude(gt_data_traj) 
                    
         # NOTE: Using default gains from the script for this example
-        # gains = (jnp.array([2.0, 2.0, 1.0]), 
-        #          jnp.diag(jnp.array([2.0, 2.0, 3.0])), 
-        #          jnp.diag(jnp.array([1.0, 1.0, 1.0])))
+        gains = (jnp.array([0.3, 0.3, 0.3]), 
+                 jnp.diag(jnp.array([0.5, 0.5, 0.5])), 
+                 jnp.diag(jnp.array([0.25, 0.25, 0.25])))
         
         # Gains that Kai used
         # vehicle mass
         m = args.mass
-        
-        k_R = jnp.array([0.3, 0.3, 0.3])
-        # k_p = jnp.array([1.0, 1.0, 1.0])
-        # k_d = jnp.array([2.0, 2.0, 2.0])
-        # K_mat, Lambda_mat = pid_to_sc(k_p, k_d, m)
-        K_mat = jnp.diag(jnp.array([0.3, 0.3, 0.3]))
-        Lambda_mat = jnp.diag(jnp.array([0.1, 0.1, 0.1]))
-        gains = (k_R, K_mat, Lambda_mat)
 
-        ts_jax, q_jax, euler_jax, w_jax_sim = run_jax_simulation(gt_data_traj, init_pose, gains)
+        if args.controller_type == 'smc':
+            # Run the original Sliding Mode Controller simulation
+            gains_smc = (jnp.array([0.3, 0.3, 0.3]),                # kr
+                        jnp.diag(jnp.array([0.5, 0.5, 0.5])),       # K_mat
+                        jnp.diag(jnp.array([0.25, 0.25, 0.25])))    # Lambda_mat
+            # gains_smc = (jnp.array([1.0, 1.0, 1.0]),                # kr
+            #             jnp.diag(jnp.array([1.0, 1.0, 1.0])),       # K_mat
+            #             jnp.diag(jnp.array([1.0, 1.0, 2.0])))    # Lambda_mat
+
+            ts_jax, q_jax, euler_jax, w_jax_sim = run_jax_simulation(gt_data_traj, init_pose, gains_smc)
+
+        elif args.controller_type == 'pid':
+            # Run the new PID Controller simulation
+            gains_pid = (jnp.array([0.3, 0.3, 0.3]),        # kr
+                        jnp.array([0.125, 0.125, 0.125]),   # kp
+                        jnp.array([0.0, 0.0, 0.0]),         # ki
+                        jnp.array([1.0, 1.0, 1.0]),         # kd
+                        1.0)                                 # integral limit
+            ts_jax, q_jax, euler_jax, w_jax_sim = run_jax_simulation_pid(gt_data_traj, init_pose, gains_pid)
 
         # --- Step 3: Plot Everything ---
         euler_gazebo = Rotation.from_quat(pose_data[2]).as_euler('xyz', degrees=True)
 
+        output_dir = "bodyrate_figs/" + args.controller_type
         plot_and_save_comparison(
-            (gt_data_traj[0], gt_data_traj[1]), # Ground truth position
+            (gt_data_traj[0], gt_data_traj[1], euler_gt), # Ground truth position
             ((pose_data[0], pose_data[1], euler_gazebo), (vel_data[0], vel_data[1])), # Gazebo states
             (ts_jax, q_jax, euler_jax, w_jax_sim), # JAX states
-            cmd_data # Commanded states from rosbag
+            cmd_data, # Commanded states from rosbag
+            output_dir=output_dir
         )
         print("\n--- Comparison Complete ---")
     else:
