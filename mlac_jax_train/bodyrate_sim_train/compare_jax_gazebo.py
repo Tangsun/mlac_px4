@@ -172,18 +172,19 @@ def extract_filtered_rosbag_data(rosbag_path, pose_topic, velocity_topic, contro
 
 
 # --- JAX Simulation Functions (SMC) ---
-def npy_reference_func(t, ts_ref, r_ref, dr_ref, ddr_ref, yaw_ref):
+def npy_reference_func(t, ts_ref, r_ref, dr_ref, ddr_ref, yaw_ref, yaw_rate_ref):
     r = jnp.array([jnp.interp(t, ts_ref, r_ref[:, i]) for i in range(3)])
     dr = jnp.array([jnp.interp(t, ts_ref, dr_ref[:, i]) for i in range(3)])
     ddr = jnp.array([jnp.interp(t, ts_ref, ddr_ref[:, i]) for i in range(3)])
     yaw = jnp.interp(t, ts_ref, yaw_ref)
-    return r, dr, ddr, yaw
+    yaw_rate = jnp.interp(t, ts_ref, yaw_rate_ref)
+    return r, dr, ddr, yaw, yaw_rate
 
 def simulation_ode(z, t, k_R, K_mat, Lambda_mat, reference_func, dt):
     x, R_flatten, Omega_state = z
     q, dq = x[:3], x[3:]
     R = R_flatten.reshape((3, 3))
-    r, dr, ddr, yaw_d = reference_func(t)
+    r, dr, ddr, yaw_d, yaw_rate_d = reference_func(t)
     e, de = q - r, dq - dr
     s = de + Lambda_mat @ e
     v, dv = dr - Lambda_mat @ e, ddr - Lambda_mat @ de
@@ -200,7 +201,13 @@ def simulation_ode(z, t, k_R, K_mat, Lambda_mat, reference_func, dt):
     b_1d = jnp.cross(b_2d, b_3d)
     R_d = jnp.column_stack((b_1d, b_2d, b_3d))
     e_R = 0.5 * vee(R_d.T @ R - R.T @ R_d)
-    Omega_cmd = -k_R * e_R
+    
+    # Feedforward (for yaw rate ONLY NOW)
+    world_yaw_rate = jnp.array([0., 0., yaw_rate_d])
+    Omega_ff = R.T @ world_yaw_rate
+    
+    Omega_cmd = -k_R * e_R + Omega_ff
+    
     dR = R @ hat(Omega_cmd)
     u_applied = f_d * R @ jnp.array([0., 0., 1.])
     ddq = jnp.linalg.solve(H, u_applied - C @ dq - g)
@@ -209,9 +216,9 @@ def simulation_ode(z, t, k_R, K_mat, Lambda_mat, reference_func, dt):
     return dx, dR.flatten(), dOmega
 
 @partial(jax.jit, static_argnums=(5, 7))
-def jax_flatten_wrapper(z_flat, t, k_R, K_mat, Lambda_mat, reference_func, dt, z_unravel_func, ts_ref, r_ref, dr_ref, ddr_ref, yaw_ref):
+def jax_flatten_wrapper(z_flat, t, k_R, K_mat, Lambda_mat, reference_func, dt, z_unravel_func, ts_ref, r_ref, dr_ref, ddr_ref, yaw_ref, yaw_rate_ref):
     z_tree = z_unravel_func(z_flat)
-    ref_func_partial = partial(reference_func, ts_ref=ts_ref, r_ref=r_ref, dr_ref=dr_ref, ddr_ref=ddr_ref, yaw_ref=yaw_ref)
+    ref_func_partial = partial(reference_func, ts_ref=ts_ref, r_ref=r_ref, dr_ref=dr_ref, ddr_ref=ddr_ref, yaw_ref=yaw_ref, yaw_rate_ref=yaw_rate_ref)
     dz_tree = simulation_ode(z_tree, t, k_R, K_mat, Lambda_mat, ref_func_partial, dt)
     return jnp.concatenate(jax.tree_util.tree_leaves(dz_tree))
 
@@ -220,7 +227,7 @@ def run_jax_simulation(gt_data, initial_pose_msg, gains):
     """
     Runs the JAX simulation using the provided ground truth and initial conditions.
     """
-    ts_ref, r_ref, dr_ref, ddr_ref, yaw_ref = gt_data
+    ts_ref, r_ref, dr_ref, ddr_ref, yaw_ref, yaw_rate_ref = gt_data
     k_R, K_mat, Lambda_mat = gains
     
     T_FINAL = ts_ref[-1]
@@ -242,7 +249,7 @@ def run_jax_simulation(gt_data, initial_pose_msg, gains):
     z0_flat, z_unravel_func = jax.flatten_util.ravel_pytree(z0_tree)
 
     print("\n--- Starting JAX Simulation ---")
-    ode_for_solver = partial(jax_flatten_wrapper, k_R=k_R, K_mat=K_mat, Lambda_mat=Lambda_mat, reference_func=npy_reference_func, dt=DT, z_unravel_func=z_unravel_func, ts_ref=jnp.array(ts_ref), r_ref=jnp.array(r_ref), dr_ref=jnp.array(dr_ref), ddr_ref=jnp.array(ddr_ref), yaw_ref=jnp.array(yaw_ref))
+    ode_for_solver = partial(jax_flatten_wrapper, k_R=k_R, K_mat=K_mat, Lambda_mat=Lambda_mat, reference_func=npy_reference_func, dt=DT, z_unravel_func=z_unravel_func, ts_ref=jnp.array(ts_ref), r_ref=jnp.array(r_ref), dr_ref=jnp.array(dr_ref), ddr_ref=jnp.array(ddr_ref), yaw_ref=jnp.array(yaw_ref), yaw_rate_ref=jnp.array(yaw_rate_ref))
     
     z_history_flat, ts_jax = odeint_fixed_step(ode_for_solver, z0_flat, 0.0, T_FINAL, DT)
     
@@ -267,7 +274,7 @@ def simulation_ode_pid(z, t, kr, kp, ki, kd, integral_limit, reference_func, dt)
     q, dq = x[:3], x[3:]
     R = R_flatten.reshape((3, 3))
 
-    r, dr, ddr, yaw_d = reference_func(t)
+    r, dr, ddr, yaw_d, yaw_rate_d = reference_func(t)
 
     # PID Controller Logic
     pos_err = q - r
@@ -294,10 +301,15 @@ def simulation_ode_pid(z, t, kr, kp, ki, kd, integral_limit, reference_func, dt)
     R_d = jnp.column_stack((b_1d, b_2d, b_3d))
 
     e_R = 0.5 * vee(R_d.T @ R - R.T @ R_d)
+    
+    # Feedforward (for yaw rate ONLY NOW)
+    world_yaw_rate = jnp.array([0., 0., yaw_rate_d])
+    Omega_ff = R.T @ world_yaw_rate
+    
     # NOTE: For PID, we assume k_R is implicitly part of the PX4 inner loop
     # and not explicitly set in the same way. We use a placeholder here.
     k_R_pid = kr
-    Omega_cmd = -k_R_pid * e_R
+    Omega_cmd = -k_R_pid * e_R + Omega_ff
 
     dR = R @ hat(Omega_cmd)
     u_applied = f_d * R @ jnp.array([0., 0., 1.])
@@ -312,9 +324,9 @@ def simulation_ode_pid(z, t, kr, kp, ki, kd, integral_limit, reference_func, dt)
 
 
 @partial(jax.jit, static_argnums=(7, 9))
-def jax_flatten_wrapper_pid(z_flat, t, kr, kp, ki, kd, integral_limit, reference_func, dt, z_unravel_func, ts_ref, r_ref, dr_ref, ddr_ref, yaw_ref):
+def jax_flatten_wrapper_pid(z_flat, t, kr, kp, ki, kd, integral_limit, reference_func, dt, z_unravel_func, ts_ref, r_ref, dr_ref, ddr_ref, yaw_ref, yaw_rate_ref):
     z_tree = z_unravel_func(z_flat)
-    ref_func_partial = partial(reference_func, ts_ref=ts_ref, r_ref=r_ref, dr_ref=dr_ref, ddr_ref=ddr_ref, yaw_ref=yaw_ref)
+    ref_func_partial = partial(reference_func, ts_ref=ts_ref, r_ref=r_ref, dr_ref=dr_ref, ddr_ref=ddr_ref, yaw_ref=yaw_ref, yaw_rate_ref=yaw_rate_ref)
     dz_tree = simulation_ode_pid(z_tree, t, kr, kp, ki, kd, integral_limit, ref_func_partial, dt)
     return jnp.concatenate(jax.tree_util.tree_leaves(dz_tree))
 
@@ -322,7 +334,7 @@ def run_jax_simulation_pid(gt_data, initial_pose_msg, gains):
     """
     Runs the JAX simulation using the PID controller.
     """
-    ts_ref, r_ref, dr_ref, ddr_ref, yaw_ref = gt_data
+    ts_ref, r_ref, dr_ref, ddr_ref, yaw_ref, yaw_rate_ref = gt_data
     kr, kp, ki, kd, integral_limit = gains
 
     T_FINAL = ts_ref[-1]
@@ -355,7 +367,9 @@ def run_jax_simulation_pid(gt_data, initial_pose_msg, gains):
                              r_ref=jnp.array(r_ref), 
                              dr_ref=jnp.array(dr_ref), 
                              ddr_ref=jnp.array(ddr_ref),
-                             yaw_ref=jnp.array(yaw_ref))
+                             yaw_ref=jnp.array(yaw_ref),
+                             yaw_rate_ref=jnp.array(yaw_rate_ref)
+                             )
 
     z_history_flat, ts_jax = odeint_fixed_step(ode_for_solver, z0_flat, 0.0, T_FINAL, DT)
 
@@ -372,7 +386,7 @@ def get_gt_reference_attitude(gt_data):
     """
     Calculates the ground truth attitude (Euler angles) from the trajectory file.
     """
-    ts_ref, r_ref, dr_ref, ddr_ref, yaw_ref = gt_data
+    ts_ref, r_ref, dr_ref, ddr_ref, yaw_ref, _ = gt_data
 
     @jax.jit
     def get_desired_attitude(r, dr, ddr, yaw_d):
@@ -478,6 +492,7 @@ if __name__ == '__main__':
     parser.add_argument('--attitude_setpoint_topic', type=str, default="/mavros/setpoint_raw/attitude", help="Attitude/rate command topic.")
     
     parser.add_argument('--controller_type', type=str, default="smc", choices=['smc', 'pid'], help="Type of controller to use in JAX sim ('smc' or 'pid').")
+    parser.add_argument('--feedforward', action='store_true', help="Enable feedforward in the controller (if applicable).")
 
     parser.add_argument('--mass', type=float, help="Mass of the quadrotor in kg.", default=2.0)
     # Add other arguments as needed (pose_topic, gains, etc.)
@@ -494,11 +509,21 @@ if __name__ == '__main__':
     if pose_data[0] is not None and pose_data[0].size > 0:
         # --- Step 2: Run JAX Simulation ---
         traj_data = np.load(args.traj_file)
-        gt_data_traj = (traj_data[:, 0], 
-                        traj_data[:, 1:4], 
-                        traj_data[:, 4:7], 
-                        traj_data[:, 8:11], 
-                        traj_data[:, 7])
+
+        # Unpack the initial data
+        ts_ref = traj_data[:, 0]
+        r_ref = traj_data[:, 1:4]
+        dr_ref = traj_data[:, 4:7]
+        yaw_ref = traj_data[:, 7]
+        ddr_ref = traj_data[:, 8:11]
+
+        if args.feedforward:
+            yaw_rate_ref = np.gradient(np.unwrap(yaw_ref), ts_ref)
+        else:
+            yaw_rate_ref = np.zeros_like(ts_ref)
+            
+        gt_data_traj = (ts_ref, r_ref, dr_ref, ddr_ref, yaw_ref, yaw_rate_ref)
+        
         euler_gt = get_gt_reference_attitude(gt_data_traj) 
                    
         # NOTE: Using default gains from the script for this example
