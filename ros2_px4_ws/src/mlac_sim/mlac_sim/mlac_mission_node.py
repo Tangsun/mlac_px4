@@ -26,6 +26,7 @@ from .mlac_fsm import MissionFiniteStateMachine, MissionPhase # Import FSM
 from mlac_sim.bodyrate_conversion import BodyRateConverter
 
 import math
+import time
 
 class MlacMissionNode(Node):
     def __init__(self):
@@ -39,26 +40,30 @@ class MlacMissionNode(Node):
         self.declare_parameter('control_loop_rate_hz', 50.0, ParameterDescriptor(description="Rate of the main control loop"))
         self.declare_parameter('control_level', 'bodyrate', ParameterDescriptor(description="Control level: 'attitude' or 'bodyrate'"))
         self.declare_parameter('bodyrate_kp', [0.3, 0.3, 0.3], ParameterDescriptor(description="Proportional gain for bodyrate controller (if using 'bodyrate' control level)"))
+        # self.declare_parameter('bodyrate_kp', [2.0, 2.0, 1.0], ParameterDescriptor(description="Proportional gain for bodyrate controller (if using 'bodyrate' control level)"))
         self.declare_parameter('trajectory_file_name', 'circle_trajectory_8col_50hz.npy', ParameterDescriptor(description="Name of the .npy trajectory file in 'mlac_sim/traj_data/' folder"))
         self.declare_parameter('trajectory_index', 0, ParameterDescriptor(description="Index of the trajectory to use if the .npy file contains multiple trajectories. Default is 0."))
         # self.declare_parameter('vehicle_mass', 4.562, ParameterDescriptor(description="Vehicle mass (kg)"))
-        self.declare_parameter('vehicle_mass', 2.6, ParameterDescriptor(description="Vehicle mass (kg)"))
+        # self.declare_parameter('vehicle_mass', 2.6, ParameterDescriptor(description="Vehicle mass (kg)"))
+        self.declare_parameter('vehicle_mass', 2.0, ParameterDescriptor(description="Vehicle mass (kg)"))
 
         # self.declare_parameter('Kp', [2.0, 2.0, 2.0], ParameterDescriptor(description="Proportional gains [Px, Py, Pz]"))
         # self.declare_parameter('Ki', [1.0, 1.0, 1.5], ParameterDescriptor(description="Integral gains [Ix, Iy, Iz]"))
         # self.declare_parameter('Kd', [4.0, 4.0, 4.0], ParameterDescriptor(description="Derivative gains [Dx, Dy, Dz]"))
 
         # ------------------------------- KAI's tuning ------------------------------- #
-        self.declare_parameter('Kp', [0.3, 0.3, 0.6], ParameterDescriptor(description="Proportional gains [Px, Py, Pz]"))
-        self.declare_parameter('Ki', [0.001, 0.001, 0.05], ParameterDescriptor(description="Integral gains [Ix, Iy, Iz]"))
-        # self.declare_parameter('Ki', [0.00, 0.00, 0.00], ParameterDescriptor(description="Integral gains [Ix, Iy, Iz]"))
-        self.declare_parameter('Kd', [0.045, 0.045, 0.4], ParameterDescriptor(description="Derivative gains [Dx, Dy, Dz]"))
+        # self.declare_parameter('Kp', [0.3, 0.3, 0.6], ParameterDescriptor(description="Proportional gains [Px, Py, Pz]"))
+        # self.declare_parameter('Ki', [0.001, 0.001, 0.05], ParameterDescriptor(description="Integral gains [Ix, Iy, Iz]"))
+        # self.declare_parameter('Kd', [0.045, 0.045, 0.4], ParameterDescriptor(description="Derivative gains [Dx, Dy, Dz]"))
+        self.declare_parameter('Kp', [0.125, 0.125, 0.125], ParameterDescriptor(description="Proportional gains [Px, Py, Pz]"))
+        self.declare_parameter('Ki', [0.0, 0.0, 0.0], ParameterDescriptor(description="Integral gains [Ix, Iy, Iz]"))
+        self.declare_parameter('Kd', [1.0, 1.0, 1.0], ParameterDescriptor(description="Derivative gains [Dx, Dy, Dz]"))
         # ----------------------------- down to here ... ----------------------------- #
 
         self.declare_parameter('max_pos_err', [0.5, 0.5, 0.5], ParameterDescriptor(description="Max position error for PID saturation [err_x, err_y, err_z]"))
         self.declare_parameter('max_vel_err', [1.0, 1.0, 1.0], ParameterDescriptor(description="Max velocity error for PID saturation [verr_x, verr_y, verr_z]"))
         # self.declare_parameter('max_thrust_N', 2.6 * 9.81 / 0.760, ParameterDescriptor(description="Max thrust capability (N)"))
-        self.declare_parameter('max_thrust_N', 2.6 * 9.81, ParameterDescriptor(description="Max thrust capability (N)"))    # NOTE(KAI): adjust max thrust with the hover thrust retrieved from position control
+        self.declare_parameter('max_thrust_N', 2.0 * 9.81, ParameterDescriptor(description="Max thrust capability (N)"))    # NOTE(KAI): adjust max thrust with the hover thrust retrieved from position control
 
         # --------------------------- NEW DEBUG PARAMETERS --------------------------- #
         self.declare_parameter('debug_rotating_yaw_active', False, ParameterDescriptor(description="Activate debug mode: hover with rotating yaw, zero feedback."))
@@ -331,6 +336,9 @@ class MlacMissionNode(Node):
         self.mission_fsm.process_command(command, self.current_vehicle_state_py)
 
     def control_loop_callback(self):
+        # NOTE: Uncomment for detailed debugging logs
+        # t_start = time.perf_counter()
+
         # ... (existing logic to get current_ros_time, check is_vehicle_state_received) ...
         current_ros_time = self.get_clock().now()
         
@@ -381,11 +389,17 @@ class MlacMissionNode(Node):
             if self.outer_loop_ctrl.t_last_ == 0.0: # Proxy for first run or after reset
                  self.outer_loop_ctrl.reset(self.current_vehicle_state_py, current_goal_from_fsm)
 
+            t_ctrl_start = time.perf_counter()
+            
             att_cmd_py: AttCmdClass = self.outer_loop_ctrl.compute_attitude_command(
                 t=(current_ros_time.nanoseconds / 1e9), # Pass current time to controller
                 state=self.current_vehicle_state_py,
                 goal=current_goal_from_fsm
             )
+            
+            t_ctrl_end = time.perf_counter()
+            self.get_logger().info(f"Outer loop controller computation time: {(t_ctrl_end - t_ctrl_start)*1000:.3f} ms", throttle_duration_sec=1.0)
+
         except Exception as e:
             self.get_logger().error(f"Error in outer_loop_ctrl.compute_attitude_command: {e}\n{traceback.format_exc()}")
             return
@@ -452,9 +466,11 @@ class MlacMissionNode(Node):
             pos_msg.pose.position.z = goal_pos[2]
             pos_msg.pose.orientation = quaternion_array_to_msg(att_cmd_py.q) # Use desired attitude
             self.position_setpoint_pub.publish(pos_msg)
-            self.get_logger().info(f"Publishing position setpoint at hover: [{goal_pos[0]:.2f}, {goal_pos[1]:.2f}, {goal_pos[2]:.2f}]", throttle_duration_sec=2.0)
+            # NOTE: Uncomment for detailed debugging logs
+            # self.get_logger().info(f"Publishing position setpoint at hover: [{goal_pos[0]:.2f}, {goal_pos[1]:.2f}, {goal_pos[2]:.2f}]", throttle_duration_sec=2.0)
             self.curr_hover_thrust = self.thrust_sub.thrust
-            self.get_logger().info(f"Publishing thrust setpoint at hover: {self.curr_hover_thrust:.5f}", throttle_duration_sec=2.0)
+            # NOTE: Uncomment for detailed debugging logs
+            # self.get_logger().info(f"Publishing thrust setpoint at hover: {self.curr_hover_thrust:.5f}", throttle_duration_sec=2.0)
 
         else:
             if self.control_level == 'attitude':
@@ -487,6 +503,11 @@ class MlacMissionNode(Node):
 
         log_msg = controllog_class_to_ros_msg(log_data_py, current_ros_time.to_msg())
         self.controller_log_pub.publish(log_msg)
+
+        # NOTE: Uncomment for detailed debugging logs
+        # t_end = time.perf_counter() # END TIMER
+        # duration_ms = (t_end - t_start) * 1000
+        # self.get_logger().info(f"Callback duration: {duration_ms:.2f} ms", throttle_duration_sec=1.0)
 
 
     def destroy_node(self):
