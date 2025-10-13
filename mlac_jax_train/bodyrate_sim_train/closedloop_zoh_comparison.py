@@ -170,8 +170,6 @@ def extract_filtered_rosbag_data(rosbag_path, pose_topic, velocity_topic, contro
 
     return pose_data, vel_data, cmd_data, initial_pose_msg
 
-
-# --- JAX Simulation Functions (SMC) ---
 def npy_reference_func(t, ts_ref, r_ref, dr_ref, ddr_ref, yaw_ref, yaw_rate_ref):
     r = jnp.array([jnp.interp(t, ts_ref, r_ref[:, i]) for i in range(3)])
     dr = jnp.array([jnp.interp(t, ts_ref, dr_ref[:, i]) for i in range(3)])
@@ -180,11 +178,21 @@ def npy_reference_func(t, ts_ref, r_ref, dr_ref, ddr_ref, yaw_ref, yaw_rate_ref)
     yaw_rate = jnp.interp(t, ts_ref, yaw_rate_ref)
     return r, dr, ddr, yaw, yaw_rate
 
-def simulation_ode(z, t, k_R, K_mat, Lambda_mat, reference_func, dt):
-    x, R_flatten, Omega_state = z
+# --- JAX Simulation Functions (SMC) ---
+
+# For zero-order hold reference
+
+def calculate_smc_command(z, t, k_R, K_mat, Lambda_mat, reference_func):
+    """
+    Calculates the control command (thrust and body rates) for a given state and time.
+    This function will be called once per simulation step (zero-order-hold).
+    """
+    x, R_flatten, _ = z
     q, dq = x[:3], x[3:]
     R = R_flatten.reshape((3, 3))
+    
     r, dr, ddr, yaw_d, yaw_rate_d = reference_func(t)
+    
     e, de = q - r, dq - dr
     s = de + Lambda_mat @ e
     v, dv = dr - Lambda_mat @ e, ddr - Lambda_mat @ de
@@ -192,48 +200,54 @@ def simulation_ode(z, t, k_R, K_mat, Lambda_mat, reference_func, dt):
     tau = H @ dv + C @ v + g - K_mat @ s
     u_d = jnp.linalg.solve(B, tau)
     f_d = jnp.linalg.norm(u_d)
-    b_3d = u_d / (f_d + 1e-6)
     
+    b_3d = u_d / (f_d + 1e-6)
     b_1d_desired = jnp.array([jnp.cos(yaw_d), jnp.sin(yaw_d), 0.])
-    # b_1d_desired = dr / (jnp.linalg.norm(dr) + 1e-6)
     b_2d_temp = jnp.cross(b_3d, b_1d_desired)
     b_2d = b_2d_temp / (jnp.linalg.norm(b_2d_temp) + 1e-6)
     b_1d = jnp.cross(b_2d, b_3d)
     R_d = jnp.column_stack((b_1d, b_2d, b_3d))
-    e_R = 0.5 * vee(R_d.T @ R - R.T @ R_d)
     
-    # Feedforward (for yaw rate ONLY NOW)
+    e_R = 0.5 * vee(R_d.T @ R - R.T @ R_d)
     world_yaw_rate = jnp.array([0., 0., yaw_rate_d])
     Omega_ff = R.T @ world_yaw_rate
-    
     Omega_cmd = -k_R * e_R + Omega_ff
     
+    return f_d, Omega_cmd
+
+def simulation_ode_zoh(z, t, commands, dt):
+    """
+    Dynamics-only ODE function. It takes a constant command for the integration step.
+    """
+    f_d, Omega_cmd = commands
+    x, R_flatten, Omega_state = z
+    q, dq = x[:3], x[3:]
+    R = R_flatten.reshape((3, 3))
+
+    # Dynamics (using the provided constant commands)
     dR = R @ hat(Omega_cmd)
     u_applied = f_d * R @ jnp.array([0., 0., 1.])
+    H, C, g, _ = prior(q, dq)
     ddq = jnp.linalg.solve(H, u_applied - C @ dq - g)
     dx = jnp.concatenate((dq, ddq))
     dOmega = (Omega_cmd - Omega_state) / dt
+    
     return dx, dR.flatten(), dOmega
 
-@partial(jax.jit, static_argnums=(5, 7))
-def jax_flatten_wrapper(z_flat, t, k_R, K_mat, Lambda_mat, reference_func, dt, z_unravel_func, ts_ref, r_ref, dr_ref, ddr_ref, yaw_ref, yaw_rate_ref):
-    z_tree = z_unravel_func(z_flat)
-    ref_func_partial = partial(reference_func, ts_ref=ts_ref, r_ref=r_ref, dr_ref=dr_ref, ddr_ref=ddr_ref, yaw_ref=yaw_ref, yaw_rate_ref=yaw_rate_ref)
-    dz_tree = simulation_ode(z_tree, t, k_R, K_mat, Lambda_mat, ref_func_partial, dt)
-    return jnp.concatenate(jax.tree_util.tree_leaves(dz_tree))
-
-
-def run_jax_simulation(gt_data, initial_pose_msg, gains):
+def run_jax_zoh_simulation(gt_data, initial_pose_msg, gains):
     """
-    Runs the JAX simulation using the provided ground truth and initial conditions.
+    Runs the JAX simulation using a zero-order-hold control loop.
     """
+    # --- Setup ---
     ts_ref, r_ref, dr_ref, ddr_ref, yaw_ref, yaw_rate_ref = gt_data
     k_R, K_mat, Lambda_mat = gains
-    
     T_FINAL = ts_ref[-1]
-    # DT = ts_ref[1] - ts_ref[0]
     DT = 0.02
+    
+    # --- Create time steps for the simulation loop ---
+    ts_sim = jnp.arange(0.0, T_FINAL, DT)
 
+    # --- Initial Conditions ---
     if initial_pose_msg:
         p = initial_pose_msg.pose.position
         o = initial_pose_msg.pose.orientation
@@ -241,7 +255,6 @@ def run_jax_simulation(gt_data, initial_pose_msg, gains):
         q_init = np.array([o.x, o.y, o.z, o.w])
         R0_jax = jnp.array(Rotation.from_quat(q_init).as_matrix())
     else:
-        print("Warning: No initial pose from rosbag. Using trajectory file for initial conditions.")
         r0_jax, R0_jax = jnp.array(r_ref[0]), jnp.eye(3)
         
     dr0_jax = jnp.array(dr_ref[0])
@@ -249,19 +262,50 @@ def run_jax_simulation(gt_data, initial_pose_msg, gains):
     z0_tree = (x0_jax, R0_jax.flatten(), jnp.zeros(3))
     z0_flat, z_unravel_func = jax.flatten_util.ravel_pytree(z0_tree)
 
-    print("\n--- Starting JAX Simulation ---")
-    ode_for_solver = partial(jax_flatten_wrapper, k_R=k_R, K_mat=K_mat, Lambda_mat=Lambda_mat, reference_func=npy_reference_func, dt=DT, z_unravel_func=z_unravel_func, ts_ref=jnp.array(ts_ref), r_ref=jnp.array(r_ref), dr_ref=jnp.array(dr_ref), ddr_ref=jnp.array(ddr_ref), yaw_ref=jnp.array(yaw_ref), yaw_rate_ref=jnp.array(yaw_rate_ref))
+    # --- Define the single-step integration function ---
+    @jax.jit
+    def step_func(z_flat, t):
+        z_tree = z_unravel_func(z_flat)
+        
+        # 1. Calculate control command ONCE at the start of the step
+        ref_func_partial = partial(npy_reference_func, ts_ref=ts_ref, r_ref=r_ref, dr_ref=dr_ref, ddr_ref=ddr_ref, yaw_ref=yaw_ref, yaw_rate_ref=yaw_rate_ref)
+        commands = calculate_smc_command(z_tree, t, k_R, K_mat, Lambda_mat, ref_func_partial)
+
+        # 2. Define the dynamics function for the integrator, holding the command constant
+        ode_func_partial = partial(simulation_ode_zoh, commands=commands, dt=DT)
+        
+        # 3. Integrate dynamics over one time step
+        # Since odeint_fixed_step uses rk38 internally, we'll call it for a single step.
+        # This requires a small utility function if not already available in utils.py
+        from utils import rk38_step 
+        
+        # Convert ODE func to work with flattened state for rk38_step
+        def flat_dynamics(z_flat_inner, t_inner):
+            z_tree_inner = z_unravel_func(z_flat_inner)
+            dz_tree_inner = ode_func_partial(z_tree_inner, t_inner)
+            return jnp.concatenate(jax.tree_util.tree_leaves(dz_tree_inner))
+
+        z_next_flat = rk38_step(flat_dynamics, DT, z_flat, t)
+        return z_next_flat
+
+    # --- Run the ZOH Simulation Loop ---
+    print("\n--- Starting JAX Simulation (Zero-Order-Hold) ---")
+    z_history_flat = [z0_flat]
+    current_z_flat = z0_flat
+    for t in ts_sim[:-1]:
+        current_z_flat = step_func(current_z_flat, t)
+        z_history_flat.append(current_z_flat)
+    z_history_flat = jnp.array(z_history_flat)
     
-    z_history_flat, ts_jax = odeint_fixed_step(ode_for_solver, z0_flat, 0.0, T_FINAL, DT)
-    
+    # --- Post-process results ---
     z_history = jax.vmap(z_unravel_func)(z_history_flat)
-    x_hist, R_flat_hist, Omega_hist = z_history # <-- MODIFIED: Capture Omega_hist
+    x_hist, R_flat_hist, Omega_hist = z_history
     q_jax = x_hist[:, :3]
     R_jax = R_flat_hist.reshape(-1, 3, 3)
     euler_jax = Rotation.from_matrix(np.asarray(R_jax)).as_euler('xyz', degrees=True)
     print("--- JAX Simulation Complete ---")
 
-    return ts_jax, q_jax, euler_jax, Omega_hist # <-- MODIFIED: Return Omega_hist
+    return ts_sim, q_jax, euler_jax, Omega_hist
 
 
 # --- JAX Simulation Functions (PID Controller) ---
@@ -545,8 +589,7 @@ if __name__ == '__main__':
             #             jnp.diag(jnp.array([1.0, 1.0, 1.0])),       # K_mat
             #             jnp.diag(jnp.array([1.0, 1.0, 2.0])))    # Lambda_mat
 
-            ts_jax, q_jax, euler_jax, w_jax_sim = run_jax_simulation(gt_data_traj, init_pose, gains_smc)
-            
+            ts_jax, q_jax, euler_jax, w_jax_sim = run_jax_zoh_simulation(gt_data_traj, init_pose, gains)
             print(ts_jax)
 
         elif args.controller_type == 'pid':
