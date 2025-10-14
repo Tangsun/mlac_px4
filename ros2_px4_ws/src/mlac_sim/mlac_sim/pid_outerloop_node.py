@@ -2,6 +2,7 @@
 ## The goal is to compare COML implementation with no adaptation with the current PID Design
 
 import numpy as np
+import numba
 import os
 import pickle
 from ament_index_python.packages import get_package_share_directory # ROS 2 equivalent for rospkg
@@ -11,22 +12,8 @@ from .dynamics import prior
 from .structs import AttCmdClass, ControlLogClass, GoalClass
 from .helpers import quaternion_multiply
 from .utils import params_to_posdef, quaternion_to_rotation_matrix, flat_rotation_matrix_to_quaternion
+from .pid_outerloop_utils import IntegratorClass, convert_p_qbar
 
-def convert_p_qbar(p):
-    return np.sqrt(1/(1 - 1/p) - 1.1)
-
-class IntegratorClass:
-    def __init__(self):
-        self.value_ = 0.0 
-
-    def increment(self, inc, dt):
-        self.value_ += inc * dt
-
-    def reset(self):
-        self.value_ = 0.0
-
-    def value(self):
-        return self.value_
 
 class PIDOuterLoop:
     def __init__(self, params, state0, goal0, controller='pid', package_name='mlac_sim'): 
@@ -105,7 +92,7 @@ class PIDOuterLoop:
         self.last_computed_F_W_ = F_W
         return cmd
 
-    def get_force(self, dt, state, goal, f_hat):
+    def __get_force(self, dt, state, goal, f_hat):
         # Assuming state.t is available for logging, if not, pass 't' as an argument
         current_time_for_log = state.t 
         logger_fn = self.get_logger().debug
@@ -171,6 +158,107 @@ class PIDOuterLoop:
         self.log_.F_W = F_W
         
         logger_fn(f"get_force FINAL @ t={current_time_for_log:.3f}: F_W_cmd={F_W}, P_err_x={e[0]:.3f}, V_err_x={edot[0]:.3f}, A_fb_x={self.log_.a_fb[0]:.3f}")
+        return F_W
+
+    def get_force(self, dt, state, goal, f_hat):
+        # Assuming state.t is available for logging, if not, pass 't' as an argument
+        current_time_for_log = state.t 
+        logger_fn = self.get_logger().debug
+
+        # ----------- Check the mode changes to reset integrators if needed ---------- #
+        if goal.mode_xy != self.mode_xy_last_:
+            self.Ix_.reset(); self.Iy_.reset()
+            self.mode_xy_last_ = goal.mode_xy
+        if goal.mode_z != self.mode_z_last_:
+            self.Iz_.reset()
+            self.mode_z_last_ = goal.mode_z
+        
+        # ---------------------------------------------------------------------------- #
+        #                              DEPRECATED FOR JIT                              #
+        # ---------------------------------------------------------------------------- #
+        a_fb_calculated = np.zeros(3) 
+        e = goal.p - state.p # Calculate errors for logging, even if not used for F_W in debug
+        edot = goal.v - state.v
+
+        # ---------------------------------------------------------------------------- #
+        #                                PID Controller                                #
+        # ---------------------------------------------------------------------------- #
+        e_clamped = np.minimum(np.maximum(e, -self.params_.maxPosErr), self.params_.maxPosErr)      # maxPosErr is [0.5, 0.5, 0.5] by default
+        edot_clamped = np.minimum(np.maximum(edot, -self.params_.maxVelErr), self.params_.maxVelErr)    # maxVelErr is [1.0, 1.0, 1.0] by default
+
+        # ---------------------- PID Integral logic for XY mode ---------------------- #
+        ANTI_WINDUP_THRESHOLD = 0.2
+        if goal.mode_xy == GoalClass.Mode.POS_CTRL:
+            if np.abs(e_clamped[0]) < ANTI_WINDUP_THRESHOLD: self.Ix_.increment(e_clamped[0], dt)
+            else: self.Ix_.reset()
+            if np.abs(e_clamped[1]) < ANTI_WINDUP_THRESHOLD: self.Iy_.increment(e_clamped[1], dt)
+            else: self.Iy_.reset()
+            # self.Ix_.increment(e_clamped[0], dt); self.Iy_.increment(e_clamped[1], dt)
+
+        # ... (rest of PID integral logic as before) ...
+        elif goal.mode_xy == GoalClass.Mode.VEL_CTRL: e_clamped[0] = e_clamped[1] = 0.0 
+        elif goal.mode_xy == GoalClass.Mode.ACC_CTRL: e_clamped[0] = e_clamped[1] = 0.0; edot_clamped[0] = edot_clamped[1] = 0.0
+        # ---------------------- PID Integral logic for Z mode ----------------------- #
+        if goal.mode_z == GoalClass.Mode.POS_CTRL:
+            if np.abs(e_clamped[2]) < ANTI_WINDUP_THRESHOLD: self.Iz_.increment(e_clamped[2], dt)
+            else: self.Iz_.reset()
+        # if goal.mode_z == GoalClass.Mode.POS_CTRL: self.Iz_.increment(e_clamped[2], dt)
+        elif goal.mode_z == GoalClass.Mode.VEL_CTRL: e_clamped[2] = 0.0
+        elif goal.mode_z == GoalClass.Mode.ACC_CTRL: e_clamped[2] = 0.0; edot_clamped[2] = 0.0
+
+        eint = np.array([self.Ix_.value(), self.Iy_.value(), self.Iz_.value()])
+
+        # ----------------------------- MAIN PID formula ----------------------------- #
+        a_fb_calculated = self.params_.Kp * e_clamped \
+                        + self.params_.Ki * eint \
+                        + self.params_.Kd * edot_clamped
+        F_W = a_fb_calculated + self.params_.mass * (goal.a - self.GRAVITY)     # NOTE(KAI): `goal.a` seems to be zero (09/10/2025)
+        # F_W = self.params_.mass * (a_fb_calculated + goal.a - self.GRAVITY)
+
+        # ---------------------------------------------------------------------------- #
+        #                                 JIT VERSION                                  #
+        # ---------------------------------------------------------------------------- #
+        # F_W, a_fb_calculated, e, edot, eint = get_force_jit(
+        #     state_p=state.p,
+        #     state_v=state.v,
+        #     goal_p=goal.p,
+        #     goal_v=goal.v,
+        #     goal_a=goal.a,
+        #     maxPosErr=self.params_.maxPosErr,
+        #     maxVelErr=self.params_.maxVelErr,
+        #     mass=self.params_.mass,
+        #     gravity=self.GRAVITY,
+        #     dt=dt,
+        #     Kp=self.params_.Kp,
+        #     Ki=self.params_.Ki,
+        #     Kd=self.params_.Kd,
+        #     eint_in=np.array([self.Ix_.value(), self.Iy_.value(), self.Iz_.value()])
+        # )
+
+        # self.Ix_.value_ = eint[0]
+        # self.Iy_.value_ = eint[1]
+        # self.Iz_.value_ = eint[2]
+
+        # ---------------------------------------------------------------------------- #
+        #                             Original before JIT:                             #
+        # ---------------------------------------------------------------------------- #
+             
+        self.log_.p_err_int = eint # Log PID integral term
+        self.log_.a_fb = a_fb_calculated
+
+        # ----------- Common logging after F_W is determined for all cases ----------- #
+        self.log_.p = state.p
+        self.log_.p_ref = goal.p
+        self.log_.p_err = e # This is actual error, not necessarily what drove F_W if in debug mode
+        self.log_.v = state.v
+        self.log_.v_ref = goal.v
+        self.log_.v_err = edot # Actual error
+        self.log_.a_ff = goal.a 
+        # self.log_.a_fb is set within each controller block or by debug block
+        self.log_.F_W = F_W
+        
+        # NOTE: Uncomment for detailed debugging logs
+        # logger_fn(f"get_force FINAL @ t={current_time_for_log:.3f}: F_W_cmd={F_W}, P_err_x={e[0]:.3f}, V_err_x={edot[0]:.3f}, A_fb_x={self.log_.a_fb[0]:.3f}")
         return F_W
 
     def get_attitude(self, state, goal, F_W):

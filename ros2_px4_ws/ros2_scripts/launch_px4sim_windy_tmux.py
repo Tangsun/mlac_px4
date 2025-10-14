@@ -176,7 +176,7 @@ if __name__ == "__main__":
         "--bodyrate_kp",
         nargs='+',  # This is the key change
         type=float,
-        default=[0.0, 0.0, 0.0], # A default list is good practice
+        default=[0.3, 0.3, 0.3], # A default list is good practice
         help="Proportional gains for bodyrate control (e.g., --bodyrate_kp 5.0 5.0 4.0)."
     )
     parser.add_argument(

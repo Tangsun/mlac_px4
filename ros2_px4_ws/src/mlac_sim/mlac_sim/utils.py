@@ -14,6 +14,7 @@ from functools import partial
 from jax.flatten_util import ravel_pytree
 import jax.debug as jdebug
 
+@jax.jit
 def flat_rotation_matrix_to_quaternion(rot_mat_flat):
     """Convert a rotation matrix to a quaternion. Quaternion is in w, x, y, z format."""
     rot_mat = rot_mat_flat.reshape(3,3)
