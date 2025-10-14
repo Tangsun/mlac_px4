@@ -74,3 +74,8 @@ ros2_px4_ws/src/mlac_sim/models/
 
 # Ignore legacy implementations, which are put in Archive folder
 Archive/
+
+# Ignore ros build files
+build/
+install/
+log/
