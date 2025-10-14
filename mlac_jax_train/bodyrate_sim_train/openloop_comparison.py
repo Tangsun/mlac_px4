@@ -104,20 +104,142 @@ def extract_open_loop_data(rosbag_path, pose_topic, control_log_topic, att_sp_to
     
     return gazebo_states, commanded_inputs, initial_pose_msg
 
-
-# --- JAX Open-Loop Simulation Functions ---
-def commanded_inputs_func(t, t_cmd, thrust_cmd, w_cmd):
-    """Interpolates both normalized thrust and angular velocity commands."""
-    thrust_norm = jnp.interp(t, t_cmd, thrust_cmd)
-    omega_cmd_x = jnp.interp(t, t_cmd, w_cmd[:, 0])
-    omega_cmd_y = jnp.interp(t, t_cmd, w_cmd[:, 1])
-    omega_cmd_z = jnp.interp(t, t_cmd, w_cmd[:, 2])
-    omega_cmd = jnp.array([omega_cmd_x, omega_cmd_y, omega_cmd_z])
-    return thrust_norm, omega_cmd
-
-def simulation_ode_open_loop_zoh(z, t, commands, dt, mass, g_acc):
+# New Data Extraction Function
+def extract_open_loop_data_att_only_same_timing(rosbag_path, pose_topic, control_log_topic, att_sp_topic):
     """
-    Dynamics-only ODE. State 'z' is now just (x, R_flatten).
+    Build a single consistent timeline using ONLY /mavros/setpoint_raw/attitude,
+    assuming it's equivalent to loopback. Gate by control_log window if present.
+    """
+    reader = SequentialReader()
+    storage_options, converter_options = get_rosbag_options(rosbag_path)
+    reader.open(storage_options, converter_options)
+    topic_types = {meta.name: meta.type for meta in reader.get_all_topics_and_types()}
+
+    # Resolve message classes
+    PoseStampedMsgClass = get_message(topic_types[pose_topic])
+    ControllerLogMsgClass = get_message(topic_types[control_log_topic])
+    AttitudeTargetMsgClass = get_message(topic_types[att_sp_topic])
+
+    def header_ns(hdr):
+        return int(hdr.stamp.sec) * 1_000_000_000 + int(hdr.stamp.nanosec)
+
+    # ---------- Pass 1: find window from control_log (if available) ----------
+    traj_exec_start_ns = -1
+    traj_exec_end_ns   = -1
+    reader.set_filter(StorageFilter(topics=[control_log_topic]))
+    while reader.has_next():
+        topic, data, _ = reader.read_next()
+        msg = deserialize_message(data, ControllerLogMsgClass)
+        if traj_exec_start_ns == -1 and msg.trajectory_execution_start_ros_time.sec > 0:
+            traj_exec_start_ns = msg.trajectory_execution_start_ros_time.sec * 1e9 + msg.trajectory_execution_start_ros_time.nanosec
+        if msg.trajectory_execution_end_ros_time.sec > 0:
+            traj_exec_end_ns = msg.trajectory_execution_end_ros_time.sec * 1e9 + msg.trajectory_execution_end_ros_time.nanosec
+            break
+
+    # ---------- Pass 2: collect setpoints + poses (header time only) ----------
+    reader.set_filter(StorageFilter(topics=[pose_topic, att_sp_topic]))
+    reader.seek(0)
+
+    t_cmd_ns, thrust_raw, w_raw, mask_raw = [], [], [], []
+    t_pose_ns, q_pose, quat_pose = [], [], []
+    initial_pose_msg = None
+
+    while reader.has_next():
+        topic, data, _ = reader.read_next()
+
+        if topic == att_sp_topic:
+            msg = deserialize_message(data, AttitudeTargetMsgClass)
+            t_ns = header_ns(msg.header)
+
+            # If control window is known, keep only inside it
+            if traj_exec_start_ns != -1 and t_ns < traj_exec_start_ns: 
+                continue
+            if traj_exec_end_ns   != -1 and t_ns > traj_exec_end_ns: 
+                continue
+
+            t_cmd_ns.append(t_ns)
+            thrust_raw.append(float(msg.thrust))
+            w_raw.append([float(msg.body_rate.x), float(msg.body_rate.y), float(msg.body_rate.z)])
+            mask_raw.append(int(msg.type_mask))
+
+        elif topic == pose_topic:
+            msg = deserialize_message(data, PoseStampedMsgClass)
+            t_ns = header_ns(msg.header)
+
+            if traj_exec_start_ns != -1 and t_ns < traj_exec_start_ns: 
+                continue
+            if traj_exec_end_ns   != -1 and t_ns > traj_exec_end_ns: 
+                continue
+
+            if initial_pose_msg is None:
+                initial_pose_msg = msg
+            t_pose_ns.append(t_ns)
+            q_pose.append([msg.pose.position.x, msg.pose.position.y, msg.pose.position.z])
+            quat_pose.append([msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w])
+
+    if len(t_cmd_ns) == 0:
+        print("ERROR: No /mavros/setpoint_raw/attitude messages found in the selected window.")
+        return (None, None, None), (None, None, None), None
+
+    # Sort by time to be safe
+    order_cmd = np.argsort(t_cmd_ns)
+    t_cmd_ns  = np.array(t_cmd_ns)[order_cmd]
+    thrust_raw = np.array(thrust_raw)[order_cmd]
+    w_raw      = np.array(w_raw)[order_cmd]
+    mask_raw   = np.array(mask_raw)[order_cmd]
+
+    if len(t_pose_ns) > 0:
+        order_pose = np.argsort(t_pose_ns)
+        t_pose_ns  = np.array(t_pose_ns)[order_pose]
+        q_pose     = np.array(q_pose)[order_pose]
+        quat_pose  = np.array(quat_pose)[order_pose]
+    else:
+        t_pose_ns = np.array([])
+        q_pose    = np.empty((0,3))
+        quat_pose = np.empty((0,4))
+
+    # If control window was not found, use span of setpoints as window origin
+    t0_ns = t_cmd_ns[0]
+    t_cmd = (t_cmd_ns - t0_ns) * 1e-9
+    t_pose = (t_pose_ns - t0_ns) * 1e-9 if t_pose_ns.size > 0 else np.array([])
+
+    # ---------- Honor type_mask with last-value-held + clamp thrust ----------
+    def lvh_forward(arr, invalid_rows):
+        arr = np.asarray(arr, dtype=float)
+        valid = ~invalid_rows
+        for i in range(arr.shape[0]):
+            if not valid[i]:
+                if i == 0:
+                    j = np.argmax(valid)
+                    arr[i] = arr[j] if valid[j] else 0.0
+                else:
+                    arr[i] = arr[i-1]
+        return arr
+
+    thrust = thrust_raw.copy()
+    w = np.asarray(w_raw, dtype=float)
+
+    thrust_invalid = (mask_raw & 64) != 0   # IGNORE_THRUST
+    thrust = lvh_forward(thrust, thrust_invalid)
+    thrust = np.clip(thrust, 0.0, 1.0)
+
+    rx_inv = (mask_raw & 1) != 0   # IGNORE_ROLL_RATE
+    ry_inv = (mask_raw & 2) != 0   # IGNORE_PITCH_RATE
+    rz_inv = (mask_raw & 4) != 0   # IGNORE_YAW_RATE
+    w[:,0] = lvh_forward(w[:,0], rx_inv)
+    w[:,1] = lvh_forward(w[:,1], ry_inv)
+    w[:,2] = lvh_forward(w[:,2], rz_inv)
+
+    gazebo_states = (t_pose, q_pose, quat_pose)
+    commanded_inputs = (t_cmd, thrust, w)
+
+    return gazebo_states, commanded_inputs, initial_pose_msg
+
+
+def simulation_ode_open_loop_zoh(z, t, commands, mass, g_acc, hov_thrust=0.726):
+    """
+    Dynamics-only ODE. It takes a constant command for the integration step.
+    State 'z' is now just (x, R_flatten).
     """
     # Unpack the constant commands for this step
     thrust_norm, Omega_cmd = commands
@@ -128,13 +250,11 @@ def simulation_ode_open_loop_zoh(z, t, commands, dt, mass, g_acc):
     R = R_flatten.reshape((3, 3))
 
     # Convert normalized thrust to force magnitude
-    f_d = thrust_norm * mass * g_acc / 0.726
+    f_d = thrust_norm * mass * g_acc / hov_thrust
 
     # --- Dynamics (using the provided constant commands) ---
-    # Rotational dynamics are driven directly by the command
     dR = R @ hat(Omega_cmd)
 
-    # Translational dynamics are driven by thrust and current attitude
     u_applied = f_d * R @ jnp.array([0., 0., 1.])
     H, C, g, _ = prior(q, dq)
     ddq = jnp.linalg.solve(H, u_applied - C @ dq - g)
@@ -142,37 +262,20 @@ def simulation_ode_open_loop_zoh(z, t, commands, dt, mass, g_acc):
 
     return dx, dR.flatten()
 
-@partial(jax.jit, static_argnums=(2, 4, 5, 6))
-def jax_flatten_wrapper_open_loop_zoh(z_flat, t, command_func, dt, mass, g_acc, z_unravel_func, t_cmd, thrust_cmd, w_cmd):
+def run_jax_open_loop_simulation_synced(initial_pose_msg, commanded_inputs, mass):
     """
-    Wrapper that enforces zero-order-hold on the commanded inputs.
-    """
-    z_tree = z_unravel_func(z_flat)
-
-    # 1. Determine the time at the beginning of the current discrete step
-    t_hold = (t // dt) * dt
-
-    # 2. Sample the command ONCE at the beginning of the step
-    command_func_partial = partial(command_func, t_cmd=t_cmd, thrust_cmd=thrust_cmd, w_cmd=w_cmd)
-    held_commands = command_func_partial(t_hold)
-
-    # 3. Call the dynamics function with the HELD command
-    dz_tree = simulation_ode_open_loop_zoh(z_tree, t, held_commands, dt, mass, g_acc)
-
-    return jnp.concatenate(jax.tree_util.tree_leaves(dz_tree))
-
-def run_jax_open_loop_simulation(initial_pose_msg, commanded_inputs, dt, mass):
-    """
-    Runs the JAX open-loop simulation using a ZOH on commands and a simplified state.
+    Runs the JAX open-loop simulation using a ZOH on commands, perfectly synchronized
+    with the timestamps from the rosbag.
     """
     t_cmd, thrust_cmd, w_cmd = commanded_inputs
-    T_FINAL = t_cmd[-1] if len(t_cmd) > 0 else 0
+    
+    print(t_cmd)
 
     if not initial_pose_msg:
         print("Error: Could not get initial pose from rosbag.")
         return None, None
 
-    # --- Initial Conditions ---
+    # --- Initial Conditions from Rosbag ---
     p = initial_pose_msg.pose.position
     o = initial_pose_msg.pose.orientation
     r0_jax = jnp.array([p.x, p.y, p.z])
@@ -181,89 +284,99 @@ def run_jax_open_loop_simulation(initial_pose_msg, commanded_inputs, dt, mass):
     q_init = np.array([o.x, o.y, o.z, o.w])
     R0_jax = jnp.array(Rotation.from_quat(q_init).as_matrix())
 
-    # --- MODIFIED: Simplified initial state tree ---
+    # --- Simplified initial state tree ---
     z0_tree = (x0_jax, R0_jax.flatten())
     z0_flat, z_unravel_func = jax.flatten_util.ravel_pytree(z0_tree)
 
-    # --- Define the single-step integration function for ZOH ---
+    # --- Define the single-step integration function for the ZOH loop ---
     @jax.jit
-    def step_func(z_flat, t):
-        # 1. Sample the command ONCE at the start of the step (t)
-        command_func_partial = partial(commanded_inputs_func, t_cmd=t_cmd, thrust_cmd=thrust_cmd, w_cmd=w_cmd)
-        held_commands = command_func_partial(t)
+    def step_func(z_flat, t_start, dt, held_commands):
 
-        # 2. Define the dynamics function for the integrator
-        ode_func_partial = partial(simulation_ode_open_loop_zoh, commands=held_commands, dt=dt, mass=mass, g_acc=9.81)
+        # Define the dynamics function for this specific step
+        ode_func_partial = partial(simulation_ode_open_loop_zoh, commands=held_commands, mass=mass, g_acc=9.81)
 
-        # 3. Integrate dynamics over one time step
+        # Import the specific integrator step from your utils
         from utils import rk38_step 
 
-        # --- MODIFIED: Simplified flat_dynamics for the new state ---
+        # Wrapper for the integrator step to handle flattened state
         def flat_dynamics(z_flat_inner, t_inner):
             z_tree_inner = z_unravel_func(z_flat_inner)
             dz_tree_inner = ode_func_partial(z_tree_inner, t_inner)
             return jnp.concatenate(jax.tree_util.tree_leaves(dz_tree_inner))
 
-        z_next_flat = rk38_step(flat_dynamics, dt, z_flat, t)
+        z_next_flat = rk38_step(flat_dynamics, dt, z_flat, t_start)
         return z_next_flat
 
-    # --- Run the ZOH Simulation Loop ---
-    print(f"\n--- Starting JAX Open-Loop Simulation (ZOH, Simplified State, DT={dt:.4f}s) ---")
-    ts_sim = jnp.arange(0.0, T_FINAL, dt)
+    # --- Run the Time-Synchronized ZOH Simulation Loop ---
+    print(f"\n--- Starting JAX Open-Loop Simulation (Time-Synchronized ZOH) ---")
+
+    ts_jax = [t_cmd[0]]
     z_history_flat = [z0_flat]
     current_z_flat = z0_flat
 
-    for t in ts_sim[:-1]:
-        current_z_flat = step_func(current_z_flat, t)
+    # Loop through each command and the corresponding time interval
+    for i in range(len(t_cmd) - 1):
+        t_start = t_cmd[i]
+        t_end = t_cmd[i+1]
+        dt = t_end - t_start
+
+        # The command is held constant for this entire interval
+        held_commands = (thrust_cmd[i], w_cmd[i])
+
+        # Integrate the dynamics over this non-uniform time step
+        current_z_flat = step_func(current_z_flat, t_start, dt, held_commands)
+
+        # Store the result
+        ts_jax.append(t_end)
         z_history_flat.append(current_z_flat)
 
     z_history_flat = jnp.array(z_history_flat)
 
-    # --- MODIFIED: Post-process results for the new state ---
+    # --- Post-process results ---
     z_history = jax.vmap(z_unravel_func)(z_history_flat)
-    x_hist, _ = z_history # Unpack only x and R, ignore Omega
+    x_hist, _ = z_history
     q_jax = x_hist[:, :3]
     print("--- JAX Open-Loop Simulation Complete ---")
 
-    return ts_sim, q_jax
+    return np.array(ts_jax), q_jax
 
 
 # --- Plotting Function ---
 def plot_open_loop_comparison(gazebo_states, jax_states, output_dir="open_loop_figs"):
-    (t_gazebo, q_gazebo, _) = gazebo_states
-    
-    # examine gazebo time
-    print(f"Gazebo time: start {t_gazebo[0]:.3f}s, end {t_gazebo[-1]:.3f}s, duration {t_gazebo[-1]-t_gazebo[0]:.3f}s")
-    print(f"Gazebo time stamps: {t_gazebo}")
-    
-    
+    (t_pose, q_gazebo, _) = gazebo_states
     (ts_jax, q_jax) = jax_states
-    print(f"JAX time: {ts_jax}")
-    
+
+    # Interp Gazebo pose to command timeline for apples-to-apples x-axis
+    if t_pose.size > 1 and q_gazebo.shape[0] > 1:
+        q_gaz_on_cmd = np.column_stack([
+            np.interp(ts_jax, t_pose, q_gazebo[:, i]) for i in range(3)
+        ])
+    else:
+        q_gaz_on_cmd = np.full_like(q_jax, np.nan)
+
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    # 3D Trajectory Plot
+    # 3D
     fig_3d = plt.figure(figsize=(10, 10))
     ax = fig_3d.add_subplot(111, projection='3d')
-    ax.plot(q_jax[:, 0], q_jax[:, 1], q_jax[:, 2], 'b-', label='JAX Open-Loop Sim', lw=2)
-    ax.plot(q_gazebo[:, 0], q_gazebo[:, 1], q_gazebo[:, 2], 'g:', label='Gazebo (Rosbag)', lw=2)
-    ax.set_title('Open-Loop 3D Trajectory Comparison'); ax.set_xlabel('X (m)'); ax.set_ylabel('Y (m)'); ax.set_zlabel('Z (m)')
+    ax.plot(q_jax[:,0], q_jax[:,1], q_jax[:,2], '-', label='JAX (setpoint timeline)', lw=2)
+    ax.plot(q_gaz_on_cmd[:,0], q_gaz_on_cmd[:,1], q_gaz_on_cmd[:,2], ':', label='Gazebo (interp@setpoint)', lw=2)
+    ax.set_title('Open-Loop 3D Trajectory (Common Setpoint Timeline)')
+    ax.set_xlabel('X (m)'); ax.set_ylabel('Y (m)'); ax.set_zlabel('Z (m)')
     ax.legend(); ax.axis('equal')
     fig_3d.savefig(os.path.join(output_dir, "open_loop_3d_trajectory.png"))
-    print(f"Saved 3D open-loop plot to: {os.path.join(output_dir, 'open_loop_3d_trajectory.png')}")
-    
-    # Position Components Plot
-    fig_pos, axs_pos = plt.subplots(3, 1, figsize=(15, 10), sharex=True)
-    pos_labels = ['X', 'Y', 'Z']
-    for i in range(3):
-        axs_pos[i].plot(ts_jax, q_jax[:, i], 'b-', label=f'JAX {pos_labels[i]}')
-        axs_pos[i].plot(t_gazebo, q_gazebo[:, i], 'g:', label=f'Gazebo {pos_labels[i]}')
-        axs_pos[i].set_ylabel(f'{pos_labels[i]} (m)'); axs_pos[i].legend(); axs_pos[i].grid(True)
-    axs_pos[2].set_xlabel('Time (s)'); fig_pos.suptitle('Open-Loop Position Comparison', fontsize=16)
-    fig_pos.savefig(os.path.join(output_dir, "open_loop_position_vs_time.png"))
-    print(f"Saved position open-loop plot to: {os.path.join(output_dir, 'open_loop_position_vs_time.png')}")
 
+    # XYZ vs time
+    fig_pos, axs_pos = plt.subplots(3, 1, figsize=(15, 10), sharex=True)
+    labels = ['X', 'Y', 'Z']
+    for i in range(3):
+        axs_pos[i].plot(ts_jax, q_jax[:, i], '-', label='JAX')
+        axs_pos[i].plot(ts_jax, q_gaz_on_cmd[:, i], ':', label='Gazebo (interp)')
+        axs_pos[i].set_ylabel(f'{labels[i]} (m)'); axs_pos[i].grid(True); axs_pos[i].legend()
+    axs_pos[2].set_xlabel('Time (s)')
+    fig_pos.suptitle('Open-Loop Position on Common (Setpoint) Timeline', fontsize=16)
+    fig_pos.savefig(os.path.join(output_dir, "open_loop_position_vs_time.png"))
     plt.show()
 
 
@@ -278,19 +391,22 @@ if __name__ == '__main__':
     
     args = parser.parse_args()
 
-    gazebo_states, commanded_inputs, init_pose = extract_open_loop_data(
-        args.rosbag, args.pose_topic, args.control_log_topic, args.attitude_setpoint_topic
-    )
+    # gazebo_states, commanded_inputs, init_pose = extract_open_loop_data(
+    #     args.rosbag, args.pose_topic, args.control_log_topic, args.attitude_setpoint_topic
+    # )
+
+    gazebo_states, commanded_inputs, init_pose = extract_open_loop_data_att_only_same_timing(
+    args.rosbag, args.pose_topic, args.control_log_topic, args.attitude_setpoint_topic
+)
     
     if gazebo_states[0] is not None and gazebo_states[0].size > 0:
-        t_cmd = commanded_inputs[0]
-        if len(t_cmd) > 1:
-            command_dt = np.mean(np.diff(t_cmd))
-        else:
-            command_dt = 0.02
-            
-        ts_jax, q_jax = run_jax_open_loop_simulation(init_pose, commanded_inputs, command_dt, args.mass)
+        # --- Step 2: Run the Time-Synchronized JAX Sim ---
+        # No need to calculate an average dt anymore
+        ts_jax, q_jax = run_jax_open_loop_simulation_synced(
+            init_pose, commanded_inputs, args.mass
+        )
 
+        # --- Step 3: Plot ---
         if ts_jax is not None:
             plot_open_loop_comparison(gazebo_states, (ts_jax, q_jax))
             print("\n--- Open-Loop Comparison Complete ---")
