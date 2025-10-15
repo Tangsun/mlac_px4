@@ -267,7 +267,7 @@ if __name__ == "__main__":
     
     topics_to_record = [
         "/mavros/state", "/mavros/local_position/pose", "/mavros/local_position/velocity_body", 
-        "/mavros/attitude", "/mavros/setpoint_raw/attitude", 
+        "/mavros/attitude", "/mavros/setpoint_raw/attitude", "/mavros/setpoint_raw/target_attitude",
         f"/mlac_mission_node/control_log",  f"/mlac_mission_node/trajectory_complete_status", 
         "/mission_control/command", "/rosout",
     ]

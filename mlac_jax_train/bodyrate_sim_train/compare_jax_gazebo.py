@@ -199,6 +199,7 @@ def simulation_ode(z, t, k_R, K_mat, Lambda_mat, reference_func, dt):
     b_2d_temp = jnp.cross(b_3d, b_1d_desired)
     b_2d = b_2d_temp / (jnp.linalg.norm(b_2d_temp) + 1e-6)
     b_1d = jnp.cross(b_2d, b_3d)
+    b_1d = b_1d / (jnp.linalg.norm(b_1d) + 1e-6)
     R_d = jnp.column_stack((b_1d, b_2d, b_3d))
     e_R = 0.5 * vee(R_d.T @ R - R.T @ R_d)
     
