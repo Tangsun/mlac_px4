@@ -4,6 +4,7 @@ import argparse
 import os
 import sys
 import numpy as np
+import scipy as sp
 import jax
 import jax.numpy as jnp
 from functools import partial
@@ -38,6 +39,7 @@ except ImportError as e:
     print(f"CRITICAL ERROR: Failed to import 'utils' or 'dynamics' modules: {e}")
     sys.exit(1)
 
+from jax_rotation import rotation_matrix_to_euler_jax
 
 # --- Data Extraction Function ---
 def get_rosbag_options(path, storage_id='sqlite3'):
@@ -105,7 +107,7 @@ def extract_open_loop_data(rosbag_path, pose_topic, control_log_topic, att_sp_to
     return gazebo_states, commanded_inputs, initial_pose_msg
 
 # New Data Extraction Function
-def extract_open_loop_data_att_only_same_timing(rosbag_path, pose_topic, control_log_topic, att_sp_topic):
+def extract_open_loop_data_att_only_same_timing(rosbag_path, pose_topic, velocity_topic, control_log_topic, att_sp_topic):
     """
     Build a single consistent timeline using ONLY /mavros/setpoint_raw/attitude,
     assuming it's equivalent to loopback. Gate by control_log window if present.
@@ -117,6 +119,7 @@ def extract_open_loop_data_att_only_same_timing(rosbag_path, pose_topic, control
 
     # Resolve message classes
     PoseStampedMsgClass = get_message(topic_types[pose_topic])
+    VelocityMsgClass = get_message(topic_types[velocity_topic])
     ControllerLogMsgClass = get_message(topic_types[control_log_topic])
     AttitudeTargetMsgClass = get_message(topic_types[att_sp_topic])
 
@@ -137,12 +140,15 @@ def extract_open_loop_data_att_only_same_timing(rosbag_path, pose_topic, control
             break
 
     # ---------- Pass 2: collect setpoints + poses (header time only) ----------
-    reader.set_filter(StorageFilter(topics=[pose_topic, att_sp_topic]))
+    reader.set_filter(StorageFilter(topics=[pose_topic, att_sp_topic, velocity_topic]))
     reader.seek(0)
 
     t_cmd_ns, thrust_raw, w_raw, mask_raw = [], [], [], []
     t_pose_ns, q_pose, quat_pose = [], [], []
+    t_vel_ns, vel_body = [], []
     initial_pose_msg = None
+    initial_velocity_msg = None
+
 
     while reader.has_next():
         topic, data, _ = reader.read_next()
@@ -176,6 +182,22 @@ def extract_open_loop_data_att_only_same_timing(rosbag_path, pose_topic, control
             t_pose_ns.append(t_ns)
             q_pose.append([msg.pose.position.x, msg.pose.position.y, msg.pose.position.z])
             quat_pose.append([msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w])
+        
+        elif topic == velocity_topic:
+            # Currently not used, but could be for initial velocity
+            msg = deserialize_message(data, VelocityMsgClass)
+            t_ns = header_ns(msg.header)
+            
+            if traj_exec_start_ns != -1 and t_ns < traj_exec_start_ns: 
+                continue
+            if traj_exec_end_ns   != -1 and t_ns > traj_exec_end_ns: 
+                continue
+            
+            if initial_velocity_msg is None:
+                initial_velocity_msg = msg
+            t_vel_ns.append(t_ns)
+            vel_body.append([msg.twist.linear.x, msg.twist.linear.y, msg.twist.linear.z])
+
 
     if len(t_cmd_ns) == 0:
         print("ERROR: No /mavros/setpoint_raw/attitude messages found in the selected window.")
@@ -184,7 +206,7 @@ def extract_open_loop_data_att_only_same_timing(rosbag_path, pose_topic, control
     # Sort by time to be safe
     order_cmd = np.argsort(t_cmd_ns)
     t_cmd_ns  = np.array(t_cmd_ns)[order_cmd]
-    thrust_raw = np.array(thrust_raw)[order_cmd]
+    thrust_raw = np.array(thrust_raw)[order_cmd]        # Fraction of thrust
     w_raw      = np.array(w_raw)[order_cmd]
     mask_raw   = np.array(mask_raw)[order_cmd]
 
@@ -198,10 +220,19 @@ def extract_open_loop_data_att_only_same_timing(rosbag_path, pose_topic, control
         q_pose    = np.empty((0,3))
         quat_pose = np.empty((0,4))
 
+    if len(t_vel_ns) > 0:
+        order_pose = np.argsort(t_vel_ns)
+        t_vel_ns  = np.array(t_vel_ns)[order_pose]
+        vel_body     = np.array(vel_body)[order_pose]
+    else:   
+        t_vel_ns = np.array([])
+        vel_body    = np.empty((0,3))
+
     # If control window was not found, use span of setpoints as window origin
     t0_ns = t_cmd_ns[0]
     t_cmd = (t_cmd_ns - t0_ns) * 1e-9
     t_pose = (t_pose_ns - t0_ns) * 1e-9 if t_pose_ns.size > 0 else np.array([])
+    t_vel = (t_vel_ns - t0_ns) * 1e-9 if t_vel_ns.size > 0 else np.array([])
 
     # ---------- Honor type_mask with last-value-held + clamp thrust ----------
     def lvh_forward(arr, invalid_rows):
@@ -230,10 +261,13 @@ def extract_open_loop_data_att_only_same_timing(rosbag_path, pose_topic, control
     w[:,1] = lvh_forward(w[:,1], ry_inv)
     w[:,2] = lvh_forward(w[:,2], rz_inv)
 
-    gazebo_states = (t_pose, q_pose, quat_pose)
+    gazebo_states = (t_pose, q_pose, quat_pose, t_vel, vel_body)
     commanded_inputs = (t_cmd, thrust, w)
 
-    return gazebo_states, commanded_inputs, initial_pose_msg
+    # jax.debug.print(initial_velocity_msg)
+    # jax.debug.print(type(initial_velocity_msg))
+
+    return gazebo_states, commanded_inputs, initial_pose_msg, initial_velocity_msg
 
 
 def simulation_ode_open_loop_zoh(z, t, commands, mass, g_acc, hov_thrust=0.726):
@@ -249,6 +283,9 @@ def simulation_ode_open_loop_zoh(z, t, commands, mass, g_acc, hov_thrust=0.726):
     q, dq = x[:3], x[3:]
     R = R_flatten.reshape((3, 3))
 
+    # ---------------------------------------------------------------------------- #
+    #                          Original Bodyrate Dynamics                          #
+    # ---------------------------------------------------------------------------- #
     # Convert normalized thrust to force magnitude
     f_d = thrust_norm * mass * g_acc / hov_thrust
 
@@ -262,7 +299,8 @@ def simulation_ode_open_loop_zoh(z, t, commands, mass, g_acc, hov_thrust=0.726):
 
     return dx, dR.flatten()
 
-def run_jax_open_loop_simulation_synced(initial_pose_msg, commanded_inputs, mass):
+
+def run_jax_open_loop_simulation_synced(initial_pose_msg, initial_velocity_msg, commanded_inputs, mass):
     """
     Runs the JAX open-loop simulation using a ZOH on commands, perfectly synchronized
     with the timestamps from the rosbag.
@@ -279,11 +317,15 @@ def run_jax_open_loop_simulation_synced(initial_pose_msg, commanded_inputs, mass
     p = initial_pose_msg.pose.position
     o = initial_pose_msg.pose.orientation
     r0_jax = jnp.array([p.x, p.y, p.z])
-    dr0_jax = jnp.zeros(3) # Assume starting from hover
-    x0_jax = jnp.concatenate([r0_jax, dr0_jax])
     q_init = np.array([o.x, o.y, o.z, o.w])
     R0_jax = jnp.array(Rotation.from_quat(q_init).as_matrix())
 
+    v = initial_velocity_msg.twist.linear
+    vel0 = np.array([v.x, v.y, v.z])
+    # dr0_jax = jnp.linalg.inv(R0_jax) @ jnp.array(vel0)
+    dr0_jax = R0_jax @ jnp.array(vel0)
+    x0_jax = jnp.concatenate([r0_jax, dr0_jax])
+    
     # --- Simplified initial state tree ---
     z0_tree = (x0_jax, R0_jax.flatten())
     z0_flat, z_unravel_func = jax.flatten_util.ravel_pytree(z0_tree)
@@ -343,7 +385,7 @@ def run_jax_open_loop_simulation_synced(initial_pose_msg, commanded_inputs, mass
 
 # --- Plotting Function ---
 def plot_open_loop_comparison(gazebo_states, jax_states, output_dir="open_loop_figs"):
-    (t_pose, q_gazebo, _) = gazebo_states
+    (t_pose, q_gazebo, _, _, _) = gazebo_states
     (ts_jax, q_jax) = jax_states
 
     # Interp Gazebo pose to command timeline for apples-to-apples x-axis
@@ -374,6 +416,7 @@ def plot_open_loop_comparison(gazebo_states, jax_states, output_dir="open_loop_f
         axs_pos[i].plot(ts_jax, q_jax[:, i], '-', label='JAX')
         axs_pos[i].plot(ts_jax, q_gaz_on_cmd[:, i], ':', label='Gazebo (interp)')
         axs_pos[i].set_ylabel(f'{labels[i]} (m)'); axs_pos[i].grid(True); axs_pos[i].legend()
+        axs_pos[i].set_xlim([ts_jax[0], 15.0])
     axs_pos[2].set_xlabel('Time (s)')
     fig_pos.suptitle('Open-Loop Position on Common (Setpoint) Timeline', fontsize=16)
     fig_pos.savefig(os.path.join(output_dir, "open_loop_position_vs_time.png"))
@@ -386,6 +429,7 @@ if __name__ == '__main__':
     parser.add_argument('--rosbag', type=str, required=True, help="Path to the rosbag directory.")
     parser.add_argument('--mass', type=float, default=2.0, help="Vehicle mass (kg).")
     parser.add_argument('--pose_topic', type=str, default="/mavros/local_position/pose")
+    parser.add_argument('--velocity_topic', type=str, default="/mavros/local_position/velocity_body")
     parser.add_argument('--control_log_topic', type=str, default="/mlac_mission_node/control_log")
     parser.add_argument('--attitude_setpoint_topic', type=str, default="/mavros/setpoint_raw/attitude")
     
@@ -395,15 +439,15 @@ if __name__ == '__main__':
     #     args.rosbag, args.pose_topic, args.control_log_topic, args.attitude_setpoint_topic
     # )
 
-    gazebo_states, commanded_inputs, init_pose = extract_open_loop_data_att_only_same_timing(
-    args.rosbag, args.pose_topic, args.control_log_topic, args.attitude_setpoint_topic
+    gazebo_states, commanded_inputs, init_pose, init_velocity = extract_open_loop_data_att_only_same_timing(
+    args.rosbag, args.pose_topic, args.velocity_topic, args.control_log_topic, args.attitude_setpoint_topic
 )
     
     if gazebo_states[0] is not None and gazebo_states[0].size > 0:
         # --- Step 2: Run the Time-Synchronized JAX Sim ---
         # No need to calculate an average dt anymore
         ts_jax, q_jax = run_jax_open_loop_simulation_synced(
-            init_pose, commanded_inputs, args.mass
+            init_pose, init_velocity, commanded_inputs, args.mass
         )
 
         # --- Step 3: Plot ---
