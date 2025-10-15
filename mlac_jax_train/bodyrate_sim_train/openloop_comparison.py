@@ -322,7 +322,8 @@ def run_jax_open_loop_simulation_synced(initial_pose_msg, initial_velocity_msg, 
 
     v = initial_velocity_msg.twist.linear
     vel0 = np.array([v.x, v.y, v.z])
-    dr0_jax = jnp.linalg.inv(R0_jax) @ jnp.array(vel0)
+    # dr0_jax = jnp.linalg.inv(R0_jax) @ jnp.array(vel0)
+    dr0_jax = R0_jax @ jnp.array(vel0)
     x0_jax = jnp.concatenate([r0_jax, dr0_jax])
     
     # --- Simplified initial state tree ---
