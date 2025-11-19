@@ -440,8 +440,8 @@ if __name__ == '__main__':
     # )
 
     gazebo_states, commanded_inputs, init_pose, init_velocity = extract_open_loop_data_att_only_same_timing(
-    args.rosbag, args.pose_topic, args.velocity_topic, args.control_log_topic, args.attitude_setpoint_topic
-)
+        args.rosbag, args.pose_topic, args.velocity_topic, args.control_log_topic, args.attitude_setpoint_topic
+    )
     
     if gazebo_states[0] is not None and gazebo_states[0].size > 0:
         # --- Step 2: Run the Time-Synchronized JAX Sim ---
