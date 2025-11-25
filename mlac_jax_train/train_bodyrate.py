@@ -35,7 +35,7 @@ parser.add_argument('--meta_epochs', help='set number of epochs for meta-trainin
 parser.add_argument('--reg_P', help='set regularization for P matrix', type=float, default=1.0)
 parser.add_argument('--reg_Lambda', help='set regularization for Lambda matrix', type=float, default=0.0) # New
 parser.add_argument('--reg_K', help='set regularization for K matrix', type=float, default=0.0)       # New
-parser.add_argument('--reg_k_R', help='set regularization for k_R', type=float, default=0.001)
+parser.add_argument('--reg_k_R', help='set regularization for k_R', type=float, default=0.0)
 parser.add_argument('--z_weight', help='set weight for z tracking loss', type=float, default=1.5)
 parser.add_argument('--k_R_xy', help='scale initial k_R for x, y', type=float, default=0.3) # bodyrate_kp (x,y)
 parser.add_argument('--k_R_z', help='initial z value for k_R', type=float, default=0.3)     # bodyrate_kp (z)
