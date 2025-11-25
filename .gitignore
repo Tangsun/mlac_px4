@@ -79,3 +79,6 @@ Archive/
 build/
 install/
 log/
+
+mlac_jax_train/train_log/*
+mlac_jax_train/train_results/*

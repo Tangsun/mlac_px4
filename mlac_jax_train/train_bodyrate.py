@@ -37,8 +37,8 @@ parser.add_argument('--reg_Lambda', help='set regularization for Lambda matrix',
 parser.add_argument('--reg_K', help='set regularization for K matrix', type=float, default=0.0)       # New
 parser.add_argument('--reg_k_R', help='set regularization for k_R', type=float, default=0.001)
 parser.add_argument('--z_weight', help='set weight for z tracking loss', type=float, default=1.5)
-parser.add_argument('--k_R_xy', help='scale initial k_R for x, y', type=float, default=1.6)
-parser.add_argument('--k_R_z', help='initial z value for k_R', type=float, default=0.4)
+parser.add_argument('--k_R_xy', help='scale initial k_R for x, y', type=float, default=0.3) # bodyrate_kp (x,y)
+parser.add_argument('--k_R_z', help='initial z value for k_R', type=float, default=0.3)     # bodyrate_kp (z)
 parser.add_argument('--output_dir', help='set output directory', type=str)
 parser.add_argument('--depth', help='number of hidden layers', type=int, default=2)
 parser.add_argument('--hdim', help='number of hidden units per layer', type=int, default=32)
@@ -46,8 +46,6 @@ parser.add_argument('--learning_rate', help='set learning rate for meta-training
 
 args = parser.parse_args()
 
-
-# Now we fix the k_R and k_Omega values according to the alignment tests that we performed under tune_attitude_gains_px4.py
 
 # Set precision
 if args.use_x64:
@@ -108,9 +106,10 @@ hparams = {
         'deriv_orders':      (4, 4, 4),  # smoothness objective for each DOF
         'min_step':          (-2., -2., -0.25),    #
         'max_step':          (2., 2., 0.25),       #
-        'min_ref':           (-4.25, -3.5, 0.0),  #
+        'min_ref':           (-4.25, -3.5, 0.0),   #``
         'max_ref':           (4.5, 4.25, 2.0),     #
         'p_freq':            args.p_freq,          # frequency for p-norm update
+                                                   # (NOTE: if you make this larger than `epoch`, then it never gets updated!)
         'regularizer_P':     args.reg_P,           # coefficient for P regularization
         'regularizer_k_R':   args.reg_k_R,         # coefficient for k_R regularization
         'regularizer_Lambda': args.reg_Lambda,
@@ -120,11 +119,29 @@ hparams = {
 }
 
 if __name__ == "__main__":
+    # ---------------------------------------------------------------------------- #
+    #                               CHECK GPU STATUS                               #
+    # ---------------------------------------------------------------------------- #
+    # ----------------------- Exit if GPU not found for JAX ---------------------- #
+    # import sys
+    # print("-" * 30)
+    # print(f"JAX Backend: {jax.default_backend()}")
+    # print(f"JAX Devices: {jax.devices()}")
+    
+    # # Check if GPU is found. If not, exit immediately.
+    # if jax.default_backend() != "gpu":
+    #     print("CRITICAL ERROR: JAX is not using the GPU! Exiting to save resources.")
+    #     sys.exit(1)
+    # print("-" * 30)
+
+    # ------------------------------ JAX GPU Config ------------------------------ #
     # os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"]="false"
     # os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"]=".50"
     # os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"]="platform"
 
-    # DATA PROCESSING ########################################################
+    # ---------------------------------------------------------------------------- #
+    #                               DATA PREPARATION                               #
+    # ---------------------------------------------------------------------------- #
     # Load raw data and arrange in samples of the form
     # `(t, x, u, t_next, x_next)` for each trajectory, where `x := (q,dq)`
     with open('data/batch_trajectory_dataset.pkl', 'rb') as file:
@@ -159,7 +176,9 @@ if __name__ == "__main__":
         data
     )
 
-    # MODEL ENSEMBLE TRAINING ################################################
+    # ---------------------------------------------------------------------------- #
+    #                            MODEL ENSEMBLE TRAINING                           #
+    # ---------------------------------------------------------------------------- #
     # Loss function along a trajectory
     def ode(x, R_flatten, omega, t, u, params, prior=prior):
         """TODO: docstring."""
@@ -305,7 +324,9 @@ if __name__ == "__main__":
         epoch_avg_loss = total_loss / num_models
         ensemble_loss.append(epoch_avg_loss.item())
     
-    # META-TRAINING ##########################################################
+    # ---------------------------------------------------------------------------- #
+    #                                 META-TRAINING                                #
+    # ---------------------------------------------------------------------------- #
     J = jnp.diag(jnp.array([0.02167, 0.02167, 0.04000]))
 
     def ode(z, t, meta_params, pnorm_param, params, reference, prior=prior):
@@ -334,7 +355,7 @@ if __name__ == "__main__":
             key: params_to_posdef(value) if key in vectorized_keys else value
             for key, value in meta_params['gains'].items()
         }
-        Λ, K, P, k_R, k_Omega = gains['Λ'], gains['K'], gains['P'], gains['k_R'], gains['k_Omega']
+        Λ, K, P, k_R = gains['Λ'], gains['K'], gains['P'], gains['k_R']
 
         qn = 1.1 + pnorm_param['pnorm']**2
 
@@ -357,39 +378,6 @@ if __name__ == "__main__":
         dA = jnp.outer(s, y) @ P
 
         R = R_flatten.reshape((3,3))
-
-        # Attitude controller based on Lee et al. 2010 (SE(3) Geometric control)
-
-        # f_d = jnp.linalg.norm(u_d)
-        # b_3d = u_d / jnp.linalg.norm(u_d)
-        # b_1d = jnp.array([1, 0, 0])
-        # cross = jnp.cross(b_3d, b_1d)
-        # b_2d = cross / jnp.linalg.norm(cross)
-
-        # R_d = jnp.column_stack((jnp.cross(b_2d, b_3d), b_2d, b_3d))
-
-        # Omega_d = jnp.array([0, 0, 0])
-        # dOmega_d = jnp.array([0, 0, 0])
-
-        # e_R = 0.5 * vee(R_d.T@R - R.T@R_d)
-        # e_Omega = Omega - R.T@R_d@Omega_d
-
-        # M = - k_R*e_R \
-        #     - k_Omega*e_Omega \
-        #     + jnp.cross(Omega, J@Omega) \
-        #     - J@(hat(Omega)@R.T@R_d@Omega_d - R.T@R_d@dOmega_d)
-
-        # dOmega = jax.scipy.linalg.solve(J, M - jnp.cross(Omega, J@Omega), assume_a='pos')
-        # dR = R@hat(Omega)
-        # dR_flatten = dR.flatten()
-
-        # e_3 = jnp.array([0, 0, 1])
-        # u = f_d*R@e_3
-
-        # New implementation: assume the vehicle has direct bodyrate control
-
-        # Desired attitude rotation matrix computation
-        # Currently assuming yaw_d is always 0
 
         f_d = jnp.linalg.norm(u_d)
         b_3d = u_d / jnp.linalg.norm(u_d)
@@ -511,11 +499,6 @@ if __name__ == "__main__":
             #                             (3,)),
             # NOTE: Question - this is fixed???
             'k_R': jnp.array([args.k_R_xy, args.k_R_xy, args.k_R_z]),
-            # 'k_Omega': 0.1*jax.random.normal(subkeys_gains[4],
-            #                             (3,))
-            'k_Omega': jnp.array([0.24, 0.24, 0.24]),
-            # 'P': 0.1*jax.random.normal(subkeys_gains[2],
-                                    #    ((num_dof*(num_dof + 1)) // 2,)),
         },
     }
 
@@ -598,7 +581,6 @@ if __name__ == "__main__":
                 + regularizer_Lambda * reg_Lambda_penalty \
                 + regularizer_K * reg_K_penalty \
  
-
         aux = {
             # for each model in ensemble
             'loss': loss,
@@ -617,8 +599,6 @@ if __name__ == "__main__":
             'x': x[0, 0],
             'A': A[0, 0],
             # 'R_flatten': R_flatten[0, 0],
-            # 'k_R': meta_params['gains']['k_R'],
-            # 'k_Omega': meta_params['gains']['k_Omega'],
         }
         return loss, aux
 
@@ -666,19 +646,21 @@ if __name__ == "__main__":
             regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P, regularizer_k_R, regularizer_Lambda, regularizer_K
         )
 
-        # def zero_attitude_gain_grads(path, leaf):
-        #     # path is a sequence of jtu.PathKeyEntry objects, e.g., (DictKey(key='gains'), DictKey(key='k_R'))
-        #     if len(path) == 2 and isinstance(path[0], jtu.DictKey) and path[0].key == 'gains':
-        #         if isinstance(path[1], jtu.DictKey) and (path[1].key == 'k_R' or path[1].key == 'k_Omega'):
-        #             return jnp.zeros_like(leaf)
-        #     return leaf
+        def zero_attitude_gain_grads(path, leaf):
+            # path is a sequence of jtu.PathKeyEntry objects, e.g., (DictKey(key='gains'), DictKey(key='k_R'))
+            if len(path) == 2 and isinstance(path[0], jtu.DictKey) and path[0].key == 'gains':
+                if isinstance(path[1], jtu.DictKey) and (path[1].key == 'k_R'):
+                    return jnp.zeros_like(leaf)
+            return leaf
 
-        # final_grads = jtu.tree_map_with_path(zero_attitude_gain_grads, grads_full)
-        # opt_state = update_opt(idx, final_grads, opt_state)
+        final_grads = jtu.tree_map_with_path(zero_attitude_gain_grads, grads_full)
+        opt_state = update_opt(idx, final_grads, opt_state)
 
-        opt_state = update_opt(idx, grads_full, opt_state)
+        return opt_state, aux, final_grads
 
-        return opt_state, aux, grads_full
+        # NOTE: alternative when nonzero grads for k_R
+        # opt_state = update_opt(idx, grads_full, opt_state)
+        # return opt_state, aux, grads_full
 
     @partial(jax.jit, static_argnums=(6, 7))
     def step_pnorm(idx, meta_params, opt_state, ensemble_params, t_knots, coefs, T, dt, regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P, regularizer_k_R, regularizer_Lambda, regularizer_K):
@@ -730,11 +712,6 @@ if __name__ == "__main__":
             T, dt, regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P, regularizer_k_R, regularizer_Lambda, regularizer_K
         )
 
-        # if i%save_freq == 0:
-        #     output_path = os.path.join(output_dir, f'step_meta_epoch{i}.pkl')
-        #     with open(output_path, 'wb') as file:
-        #         pickle.dump(train_aux_meta, file)
-
         new_meta_params = get_params(opt_meta)
 
         # Update p-norm parameter
@@ -773,9 +750,8 @@ if __name__ == "__main__":
             best_idx_meta = step_meta_idx
             best_idx_pnorm = step_pnorm_idx
             print("update best meta params at step {:d}".format(step_meta_idx))
-            print('k_R: {}, k_Omega: {}'.format(
-                best_meta_params['gains']['k_R'],
-                best_meta_params['gains']['k_Omega']
+            print('k_R: {}'.format(
+                best_meta_params['gains']['k_R']
             ))
             print('valid loss: {:.4f}'.format(valid_loss))
         step_meta_idx += 1
