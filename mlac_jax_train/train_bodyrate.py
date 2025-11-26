@@ -16,13 +16,16 @@ import os
 import argparse
 import json
 import matplotlib.pyplot as plt
-import jax.tree_util as jtu
+import wandb
+import optax
 
+import jax.tree_util as jtu
 from jax import config
 config.update("jax_debug_nans", True)
 
 # Parse command line arguments
 parser = argparse.ArgumentParser()
+parser.add_argument('--exp_name', type=str, default="default_run", help='Name for wandb run and file logging')
 parser.add_argument('--seed', default=0, help='seed for pseudo-random number generation',
                     type=int)
 parser.add_argument('--M', default=50, help='number of trajectories to sub-sample',
@@ -139,6 +142,24 @@ if __name__ == "__main__":
     # os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"]="false"
     # os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"]=".50"
     # os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"]="platform"
+
+    # ---------------------------------------------------------------------------- #
+    #                                  WANDB SETUP                                 #
+    # ---------------------------------------------------------------------------- #
+    import os
+
+    output_dir = os.path.join('train_results', args.output_dir)
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    wandb_mode = os.environ.get('WANDB_MODE', 'online')  # Default to online if not set
+    wandb.init(
+        project="mlac_bodyrate_sweep",
+        name=args.exp_name,
+        config=hparams,
+        dir=output_dir,
+        mode=wandb_mode
+    )
 
     # ---------------------------------------------------------------------------- #
     #                               DATA PREPARATION                               #
@@ -273,8 +294,6 @@ if __name__ == "__main__":
         lambda a: a[:, num_train_samples:],
         shuffled_data
     )
-
-    # NOTE: Question - does `ensemble_valid_data` only get used once when doing the initial `update_best_ensemble`???
 
     # Initialize gradient-based optimizer (ADAM)
     learning_rate = hparams['ensemble']['learning_rate']
@@ -624,12 +643,38 @@ if __name__ == "__main__":
                                             t_knots)
     valid_coefs = jax.tree_util.tree_map(lambda a: a[num_train_refs:], coefs)
 
-    # Initialize gradient-based optimizer (ADAM)
-    learning_rate = hparams['meta']['learning_rate']
-    init_opt, update_opt, get_params = optimizers.adam(learning_rate)
-    # Update meta_params and pnorm_param separately
-    opt_meta = init_opt(meta_params)
-    opt_pnorm = init_opt(pnorm_param)
+    # ------------------------ Previous optimization setup ----------------------- #
+    # learning_rate = hparams['meta']['learning_rate']
+    # init_opt, update_opt, get_params = optimizers.adam(learning_rate)
+    # # Update meta_params and pnorm_param separately
+    # opt_meta = init_opt(meta_params)
+    # opt_pnorm = init_opt(pnorm_param)
+    # ---------------------------------------------------------------------------- #
+
+    # ------------------------ New optimization setup ---------------------------- #
+    # 1. Define Learning Rate Scheduler (Cosine Decay)
+    # This helps break out of local minima (loss 19-27) by annealing the rate
+    schedule = optax.cosine_decay_schedule(
+        init_value=args.learning_rate,
+        decay_steps=hparams['meta']['num_steps'],
+        alpha=1e-4 # Decays to 0.01% of initial LR
+    )
+
+    # 2. Define the Optimizer Chain
+    # Gradient Clipping (prevents exploding grads) + AdamW (better generalization)
+    optimizer = optax.chain(
+        optax.clip_by_global_norm(1.0),
+        optax.adamw(learning_rate=schedule, weight_decay=1e-4)
+    )
+
+    # 3. Initialize Optimizer States
+    # We use the SAME optimizer definition for both parameter sets
+    opt_meta_state = optimizer.init(meta_params)
+    opt_pnorm_state = optimizer.init(pnorm_param)
+
+    current_meta_params = meta_params
+    current_pnorm_param = pnorm_param
+    # ---------------------------------------------------------------------------- #
     step_meta_idx = 0
     step_pnorm_idx = 0
     best_idx_meta = 0
@@ -638,10 +683,9 @@ if __name__ == "__main__":
     best_meta_params = meta_params
     best_pnorm_param = pnorm_param
 
-    @partial(jax.jit, static_argnums=(6, 7))
-    def step_meta(idx, opt_state, pnorm_param, ensemble_params, t_knots, coefs, T, dt, regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P, regularizer_k_R, regularizer_Lambda, regularizer_K):
+    @partial(jax.jit, static_argnums=(7, 8))
+    def step_meta(idx, opt_state, meta_params, pnorm_param, ensemble_params, t_knots, coefs, T, dt, regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P, regularizer_k_R, regularizer_Lambda, regularizer_K):
         """This function only updates the meta_params in an iteration"""
-        meta_params = get_params(opt_state)
         grads_full, aux = jax.grad(loss, argnums=0, has_aux=True)(
             meta_params, pnorm_param, ensemble_params, t_knots, coefs, T, dt,
             regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P, regularizer_k_R, regularizer_Lambda, regularizer_K
@@ -655,25 +699,27 @@ if __name__ == "__main__":
             return leaf
 
         final_grads = jtu.tree_map_with_path(zero_attitude_gain_grads, grads_full)
-        opt_state = update_opt(idx, final_grads, opt_state)
 
-        return opt_state, aux, final_grads
+        updates, new_opt_state = optimizer.update(final_grads, opt_state, meta_params)
+        new_meta_params = optax.apply_updates(meta_params, updates)
+        return new_opt_state, new_meta_params, aux, final_grads
 
         # NOTE: alternative when nonzero grads for k_R
         # opt_state = update_opt(idx, grads_full, opt_state)
         # return opt_state, aux, grads_full
 
-    @partial(jax.jit, static_argnums=(6, 7))
-    def step_pnorm(idx, meta_params, opt_state, ensemble_params, t_knots, coefs, T, dt, regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P, regularizer_k_R, regularizer_Lambda, regularizer_K):
+    @partial(jax.jit, static_argnums=(7, 8))
+    def step_pnorm(idx, opt_state, meta_params, pnorm_param, ensemble_params, t_knots, coefs, T, dt, regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P, regularizer_k_R, regularizer_Lambda, regularizer_K):
         """This function only updates the meta_params in an iteration"""
-        pnorm_param = get_params(opt_state)
+        # pnorm_param = get_params(opt_state)
         grads, aux = jax.grad(loss, argnums=1, has_aux=True)(
             meta_params, pnorm_param, ensemble_params, t_knots, coefs, T, dt,
             regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P, regularizer_k_R, regularizer_Lambda, regularizer_K
         )
-        opt_state = update_opt(idx, grads, opt_state)
-        return opt_state, aux, grads
-
+        updates, new_opt_state = optimizer.update(grads, opt_state, pnorm_param)
+        new_pnorm_param = optax.apply_updates(pnorm_param, updates)
+        return new_opt_state, new_pnorm_param, aux, grads
+    
     # Pre-compile before training
     print('META-TRAINING: Pre-compiling ... ', end='', flush=True)
     dt = hparams['meta']['dt']
@@ -687,9 +733,9 @@ if __name__ == "__main__":
     regularizer_K = hparams['meta']['regularizer_K']
 
     start = time.time()
-    _ = step_meta(0, opt_meta, pnorm_param, train_ensemble, train_t_knots, train_coefs, T, dt, regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P, regularizer_k_R, regularizer_Lambda, regularizer_K)
-    _ = step_pnorm(0, meta_params, opt_pnorm, train_ensemble, train_t_knots, train_coefs, T, dt, regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P, regularizer_k_R, regularizer_Lambda, regularizer_K)
-    _ = loss(meta_params, pnorm_param, valid_ensemble, valid_t_knots, valid_coefs, T, dt, 0., 0., 0., 0., 0., 0., 0.)
+    _ = step_meta(0, opt_meta_state, current_meta_params, current_pnorm_param, train_ensemble, train_t_knots, train_coefs, T, dt, regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P, regularizer_k_R, regularizer_Lambda, regularizer_K)
+    _ = step_pnorm(0, opt_pnorm_state, current_meta_params, current_pnorm_param, train_ensemble, train_t_knots, train_coefs, T, dt, regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P, regularizer_k_R, regularizer_Lambda, regularizer_K)
+    _ = loss(current_meta_params, current_pnorm_param, valid_ensemble, valid_t_knots, valid_coefs, T, dt, 0., 0., 0., 0., 0., 0., 0.)
     end = time.time()
     print('done ({:.2f} s)! Now training ...'.format(
           end - start))
@@ -699,61 +745,70 @@ if __name__ == "__main__":
     valid_loss_history = []
     pnorm_history = []
 
+    # ---------------------------------------------------------------------------- #
+    #                              META TRAINING LOOP                              #
+    # ---------------------------------------------------------------------------- #
     start = time.time()
 
-    # Do gradient descent
-    output_dir = os.path.join('train_results', args.output_dir)
-    # save_freq = 50
-
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
     for i in tqdm(range(hparams['meta']['num_steps'])):
-        opt_meta, train_aux_meta, grads_meta = step_meta(
-            step_meta_idx, opt_meta, pnorm_param, train_ensemble, train_t_knots, train_coefs,
+        opt_meta_state, current_meta_params, train_aux_meta, grads_meta = step_meta(
+            i, opt_meta_state, current_meta_params, current_pnorm_param, train_ensemble, train_t_knots, train_coefs,
             T, dt, regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P, regularizer_k_R, regularizer_Lambda, regularizer_K
         )
 
-        new_meta_params = get_params(opt_meta)
+        current_train_loss = train_aux_meta['loss'] # Default to meta-step loss
 
         # Update p-norm parameter
         # The i+1 is to make sure not to update p-norm at step 0
         if (i+1) % hparams['meta']['p_freq'] == 0:
-            opt_pnorm, train_aux_pnorm, grads_pnorm = step_pnorm(
-                step_pnorm_idx, new_meta_params, opt_pnorm, train_ensemble, train_t_knots, train_coefs,
+            opt_pnorm_state, current_pnorm_param, train_aux_pnorm, grads_pnorm = step_pnorm(
+                step_pnorm_idx, opt_pnorm_state, current_meta_params, current_pnorm_param, train_ensemble, train_t_knots, train_coefs,
                 T, dt, regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P, regularizer_k_R, regularizer_Lambda, regularizer_K
             )
             step_pnorm_idx += 1
-            # jdebug.print('{grad_pnorm}', grad_pnorm=grads_pnorm)
-            # jdebug.print('{meta_grad}', meta_grad=grads_meta)
-            print("Update p-norm to {:.2f} at step {:d}".format(convert_qbar_p(get_params(opt_pnorm)['pnorm']), step_meta_idx))
-            pnorm_history.append(convert_qbar_p(get_params(opt_pnorm)['pnorm']))
+            
+            current_train_loss = train_aux_pnorm['loss']  # Update to p-norm step loss
+            current_p_val = convert_qbar_p(current_pnorm_param['pnorm'])
+            print(f"Update p-norm to {current_p_val:.2f} at step {i}")
+            pnorm_history.append(current_p_val)
             train_lossaux_history.append(train_aux_pnorm)
         else:
             train_lossaux_history.append(train_aux_meta)
 
-        new_pnorm_param = get_params(opt_pnorm)
-            
+        # Validation Step
         valid_loss, valid_aux = loss(
-            new_meta_params, new_pnorm_param, valid_ensemble, valid_t_knots, valid_coefs,
+            current_meta_params, current_pnorm_param, valid_ensemble, valid_t_knots, valid_coefs,
             T, dt, 0., 0., 0., 0., 0., 0., 0.
         )
-        train_loss, train_aux = loss(
-            new_meta_params, new_pnorm_param, train_ensemble, train_t_knots, train_coefs,
-            T, dt, regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P, regularizer_k_R, regularizer_Lambda, regularizer_K)
-        
         valid_loss_history.append(valid_loss)
+
+        # Logging
+        wandb.log({
+            "train_loss": current_train_loss,
+            "valid_loss": valid_loss,
+            "p_norm": convert_qbar_p(current_pnorm_param['pnorm']),
+            "learning_rate": schedule(i),
+            "gains/Λ_diag_mean": jnp.mean(jnp.diag(params_to_posdef(current_meta_params['gains']['Λ']))**2),
+            "gains/K_diag_mean": jnp.mean(jnp.diag(params_to_posdef(current_meta_params['gains']['K']))**2)
+        }, step=i)
 
         # Only update best_meta_params when the loss is decreasing
         if valid_loss < best_loss:
-            best_meta_params = new_meta_params
-            best_pnorm_param = new_pnorm_param
             best_loss = valid_loss
-            best_idx_meta = step_meta_idx
+            best_idx_meta = i
             best_idx_pnorm = step_pnorm_idx
-            print("update best meta params at step {:d}".format(step_meta_idx))
-            print('k_R: {}'.format(
-                best_meta_params['gains']['k_R']
+
+            best_meta_params = current_meta_params
+            best_pnorm_param = current_pnorm_param
+            
+            print("update best meta params at step {:d}".format(i))
+            print('Λ: {}'.format(
+                jnp.diag(params_to_posdef(best_meta_params['gains']['Λ']))**2
             ))
+            print('K: {}'.format(
+                jnp.diag(params_to_posdef(best_meta_params['gains']['K']))**2
+            ))
+
             print('valid loss: {:.4f}'.format(valid_loss))
         step_meta_idx += 1
 
@@ -801,3 +856,5 @@ if __name__ == "__main__":
     end = time.time()
     print("Meta-training completes with p-norm chosen as {:.2f}".format(results['pnorm']))
     print('done ({:.2f} s)! Best step index for meta params: {}'.format(end - start, best_idx_meta))
+
+    wandb.finish()
