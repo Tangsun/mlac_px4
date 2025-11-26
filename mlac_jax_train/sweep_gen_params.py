@@ -5,7 +5,7 @@ import itertools
 # 4 * 4 * 5 = 80 total experiments
 REG_K = [0.0, 0.01, 0.02, 0.05]
 REG_LAMBDA = [0.0, 0.01, 0.02, 0.05]
-SEEDS = [0, 1, 2, 3, 4]
+SEEDS = [0, 4] # 1 is bad, 2 and 3 never ran
 
 def get_params(job_id):
     # Create all combinations

@@ -20,7 +20,7 @@ sbatch \
     --array=0-7 \
     --cpus-per-task=12 \
     --mem=40G \
-    --time=12:00:00 \
+    --time=24:00:00 \
     --export=ALL,BATCH_TIMESTAMP=$TIMESTAMP,WORKER_OFFSET=0,TOTAL_WORKERS=$TOTAL_WORKERS \
     sweep_cpu_run_worker.sh
 
@@ -34,7 +34,7 @@ sbatch \
     --array=0-3 \
     --cpus-per-task=10 \
     --mem=40G \
-    --time=12:00:00 \
+    --time=24:00:00 \
     --export=ALL,BATCH_TIMESTAMP=$TIMESTAMP,WORKER_OFFSET=8,TOTAL_WORKERS=$TOTAL_WORKERS \
     sweep_cpu_run_worker.sh
 

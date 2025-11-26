@@ -82,3 +82,4 @@ log/
 
 mlac_jax_train/train_log/*
 mlac_jax_train/train_results/*
+mlac_jax_train/slurm-*.out
