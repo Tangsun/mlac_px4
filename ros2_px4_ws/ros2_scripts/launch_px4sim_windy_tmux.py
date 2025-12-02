@@ -149,9 +149,9 @@ if __name__ == "__main__":
         type=str,
         # default = "N100_T30.0_spline_11col_zero_yaw.npy",
         # default="figure8_L4.0_W2.0_t10s_alt2.0_initpsi0deg_FORCEZEROPsi_50hz_11col.npy",
-        # default="setpoint_rot_yaw_x0.0_y0.0_z2.0_t20.0s_initpsi0deg_rate15dps_50hz_8col.npy",
+        default="setpoint_rot_yaw_x0.0_y0.0_z2.0_t20.0s_initpsi0deg_rate15dps_50hz_8col.npy",
         # default="circle_r2.0_t20s_alt1.5_initpsi0deg_pointToCenter_50hz_11col.npy",
-        default="circle_r2.0_t20s_alt1.5_initpsi0deg_pointToCenter_50hz_11col_2laps.npy",
+        # default="circle_r2.0_t20s_alt1.5_initpsi0deg_pointToCenter_50hz_11col_2laps.npy",
         help="Name of the .npy trajectory file in 'mlac_sim/traj_data/' folder to be used by mlac_mission_node."
     )
     parser.add_argument(
@@ -215,10 +215,12 @@ if __name__ == "__main__":
         ros2_ws_path = os.path.expanduser("~/mlac_ijrr/mlac_px4/ros2_px4_ws")   # Kai's path to the ROS 2 workspace
         px4_src_path = os.path.expanduser("~/PX4-Autopilot")                    # Kai's PX4 source path
         venv_path = os.path.expanduser("~/mlac_ijrr/mlac_px4/mlac_env")         # Kai's virtual environment path
+        QGC_name = "QGroundControl-x86_64.AppImage"
     elif directory_setting == "ST":
         ros2_ws_path = os.path.expanduser("~/mlac_px4/ros2_px4_ws")        # Sunbochen's path to the ROS 2 workspace
         px4_src_path = os.path.expanduser("~/mlac_px4/px4_src/PX4-Autopilot")      
-        venv_path = os.path.expanduser("~/mlac_px4/mlac_env")              # Sunbochen's virtual environment path             
+        venv_path = os.path.expanduser("~/mlac_px4/mlac_env")              # Sunbochen's virtual environment path         
+        QGC_name = "../QGroundControl.AppImage"    
 
     now = datetime.datetime.now()
     timestamp_for_bag_dir = now.strftime("%m%d_%H%M%S")
@@ -316,7 +318,7 @@ if __name__ == "__main__":
         mlac_node_command,  
         set_stream_rates_command, 
         rosbag_command,     
-        f"sleep 15; echo '>>> Launching QGroundControl...'; cd {px4_src_path} && ./QGroundControl-x86_64.AppImage; echo 'QGC pane exited.'; exec bash", 
+        f"sleep 15; echo '>>> Launching QGroundControl...'; cd {px4_src_path} && ./{QGC_name}; echo 'QGC pane exited.'; exec bash", 
         flight_initiation_command, 
         general_command_pane 
     ]

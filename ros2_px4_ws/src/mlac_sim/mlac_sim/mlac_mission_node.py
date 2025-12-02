@@ -55,9 +55,9 @@ class MlacMissionNode(Node):
         # self.declare_parameter('Kp', [0.3, 0.3, 0.6], ParameterDescriptor(description="Proportional gains [Px, Py, Pz]"))
         # self.declare_parameter('Ki', [0.001, 0.001, 0.05], ParameterDescriptor(description="Integral gains [Ix, Iy, Iz]"))
         # self.declare_parameter('Kd', [0.045, 0.045, 0.4], ParameterDescriptor(description="Derivative gains [Dx, Dy, Dz]"))
-        self.declare_parameter('Kp', [0.125, 0.125, 0.125], ParameterDescriptor(description="Proportional gains [Px, Py, Pz]"))
+        self.declare_parameter('Kp', [2.8, 2.8, 2.8], ParameterDescriptor(description="Proportional gains [Px, Py, Pz]"))
         self.declare_parameter('Ki', [0.0, 0.0, 0.0], ParameterDescriptor(description="Integral gains [Ix, Iy, Iz]"))
-        self.declare_parameter('Kd', [1.0, 1.0, 1.0], ParameterDescriptor(description="Derivative gains [Dx, Dy, Dz]"))
+        self.declare_parameter('Kd', [5.1, 5.1, 5.1], ParameterDescriptor(description="Derivative gains [Dx, Dy, Dz]"))
         # ----------------------------- down to here ... ----------------------------- #
 
         self.declare_parameter('max_pos_err', [0.5, 0.5, 0.5], ParameterDescriptor(description="Max position error for PID saturation [err_x, err_y, err_z]"))
@@ -398,7 +398,7 @@ class MlacMissionNode(Node):
             )
             
             t_ctrl_end = time.perf_counter()
-            self.get_logger().info(f"Outer loop controller computation time: {(t_ctrl_end - t_ctrl_start)*1000:.3f} ms", throttle_duration_sec=1.0)
+            # self.get_logger().info(f"Outer loop controller computation time: {(t_ctrl_end - t_ctrl_start)*1000:.3f} ms", throttle_duration_sec=1.0)
 
         except Exception as e:
             self.get_logger().error(f"Error in outer_loop_ctrl.compute_attitude_command: {e}\n{traceback.format_exc()}")
