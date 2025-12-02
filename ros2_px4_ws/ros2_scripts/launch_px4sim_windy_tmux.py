@@ -169,7 +169,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--control_level",
         type=str,
-        default="attitude",
+        default="bodyrate",
         help="Control level to be used by mlac_mission_node (e.g., attitude, bodyrate)."
     )
     parser.add_argument(
