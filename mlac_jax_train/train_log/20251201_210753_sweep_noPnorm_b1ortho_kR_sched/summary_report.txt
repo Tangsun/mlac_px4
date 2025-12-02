@@ -1,0 +1,92 @@
+================================================================================
+TRAINING SUMMARY REPORT
+Directory: train_log/20251201_210753_sweep_noPnorm_b1ortho_kR_sched
+================================================================================
+
+Total Logs Found: 74
+Completed:        70
+Incomplete:       4
+
+--------------------------------------------------------------------------------
+COMPLETED RUNS (Ranked by Lowest Valid Loss)
+--------------------------------------------------------------------------------
+Rank   | Valid Loss   | Step   | Training Name
+----------------------------------------------
+1      | 0.4871       | 812    | seed_2_regK_0.1_regL_0.001_regKR_0.001
+2      | 0.5975       | 999    | seed_2_regK_0.01_regL_0.001_regKR_0.001
+3      | 0.7227       | 999    | seed_2_regK_0.1_regL_0.01_regKR_0.01
+4      | 0.7305       | 998    | seed_2_regK_0.001_regL_0.01_regKR_0.001
+5      | 0.7648       | 999    | seed_2_regK_0.01_regL_0.01_regKR_0.001
+6      | 0.7888       | 999    | seed_2_regK_0.001_regL_0.001_regKR_0.001
+7      | 0.7987       | 999    | seed_2_regK_0.1_regL_0.001_regKR_0.01
+8      | 0.8054       | 999    | seed_0_regK_0.01_regL_0.001_regKR_0.001
+9      | 0.8217       | 999    | seed_2_regK_0.01_regL_0.001_regKR_0.01
+10     | 0.8427       | 999    | seed_2_regK_0.01_regL_0.1_regKR_0.001
+11     | 0.8742       | 999    | seed_2_regK_0.01_regL_0.1_regKR_0.01
+12     | 0.8863       | 999    | seed_2_regK_0.001_regL_0.001_regKR_0.01
+13     | 0.9104       | 596    | seed_2_regK_0.001_regL_0.1_regKR_0.001
+14     | 0.9229       | 999    | seed_2_regK_0.1_regL_0.01_regKR_0.001
+15     | 0.9526       | 999    | seed_2_regK_0.001_regL_0.01_regKR_0.01
+16     | 0.9632       | 999    | seed_0_regK_0.1_regL_0.01_regKR_0.001
+17     | 0.9756       | 518    | seed_0_regK_0.1_regL_0.001_regKR_0.001
+18     | 1.0308       | 998    | seed_2_regK_0.001_regL_0.1_regKR_0.01
+19     | 1.0446       | 999    | seed_2_regK_0.01_regL_0.01_regKR_0.01
+20     | 1.0659       | 625    | seed_0_regK_0.001_regL_0.001_regKR_0.01
+21     | 1.0896       | 664    | seed_0_regK_0.1_regL_0.001_regKR_0.01
+22     | 1.1212       | 999    | seed_0_regK_0.01_regL_0.001_regKR_0.01
+23     | 1.1832       | 919    | seed_0_regK_0.001_regL_0.001_regKR_0.001
+24     | 1.2491       | 998    | seed_0_regK_0.1_regL_0.01_regKR_0.01
+25     | 1.3255       | 667    | seed_2_regK_0.01_regL_0.1_regKR_0.1
+26     | 1.3326       | 999    | seed_0_regK_0.01_regL_0.01_regKR_0.001
+27     | 1.4463       | 999    | seed_0_regK_0.001_regL_0.01_regKR_0.001
+28     | 1.4832       | 776    | seed_2_regK_0.001_regL_0.001_regKR_0.1
+29     | 1.5087       | 894    | seed_0_regK_0.001_regL_0.01_regKR_0.01
+30     | 1.5322       | 772    | seed_2_regK_0.1_regL_0.001_regKR_0.1
+31     | 1.5458       | 674    | seed_2_regK_0.001_regL_0.01_regKR_0.1
+32     | 1.5580       | 834    | seed_2_regK_0.01_regL_0.01_regKR_0.1
+33     | 1.6455       | 582    | seed_2_regK_0.01_regL_0.001_regKR_0.1
+34     | 1.6831       | 407    | seed_0_regK_0.01_regL_0.01_regKR_0.01
+35     | 1.7871       | 664    | seed_0_regK_0.01_regL_0.1_regKR_0.001
+36     | 1.8638       | 495    | seed_2_regK_0.1_regL_0.01_regKR_0.1
+37     | 1.9236       | 999    | seed_4_regK_0.1_regL_0.01_regKR_0.001
+38     | 2.0150       | 941    | seed_4_regK_0.001_regL_0.001_regKR_0.001
+39     | 2.0153       | 998    | seed_4_regK_0.1_regL_0.001_regKR_0.001
+40     | 2.1062       | 999    | seed_4_regK_0.1_regL_0.1_regKR_0.01
+41     | 2.1656       | 858    | seed_4_regK_0.01_regL_0.001_regKR_0.001
+42     | 2.1695       | 428    | seed_0_regK_0.001_regL_0.1_regKR_0.001
+43     | 2.1706       | 997    | seed_4_regK_0.01_regL_0.01_regKR_0.001
+44     | 2.1918       | 408    | seed_2_regK_0.001_regL_0.1_regKR_0.1
+45     | 2.2103       | 997    | seed_4_regK_0.01_regL_0.1_regKR_0.001
+46     | 2.2376       | 999    | seed_0_regK_0.01_regL_0.1_regKR_0.01
+47     | 2.2524       | 999    | seed_4_regK_0.1_regL_0.001_regKR_0.01
+48     | 2.3179       | 300    | seed_0_regK_0.1_regL_0.01_regKR_0.1
+49     | 2.4225       | 997    | seed_4_regK_0.1_regL_0.01_regKR_0.01
+50     | 2.4534       | 999    | seed_4_regK_0.001_regL_0.1_regKR_0.001
+51     | 2.5409       | 366    | seed_0_regK_0.01_regL_0.01_regKR_0.1
+52     | 2.5846       | 589    | seed_4_regK_0.01_regL_0.001_regKR_0.01
+53     | 2.6150       | 606    | seed_0_regK_0.1_regL_0.001_regKR_0.1
+54     | 2.6250       | 430    | seed_0_regK_0.001_regL_0.001_regKR_0.1
+55     | 2.6431       | 993    | seed_4_regK_0.01_regL_0.1_regKR_0.01
+56     | 2.6984       | 998    | seed_4_regK_0.001_regL_0.01_regKR_0.001
+57     | 2.7730       | 703    | seed_0_regK_0.01_regL_0.1_regKR_0.1
+58     | 2.8228       | 334    | seed_0_regK_0.001_regL_0.01_regKR_0.1
+59     | 2.8943       | 999    | seed_4_regK_0.001_regL_0.1_regKR_0.01
+60     | 2.9878       | 915    | seed_4_regK_0.001_regL_0.001_regKR_0.01
+61     | 3.1074       | 346    | seed_4_regK_0.001_regL_0.01_regKR_0.01
+62     | 3.1079       | 514    | seed_4_regK_0.01_regL_0.01_regKR_0.01
+63     | 4.8514       | 355    | seed_4_regK_0.1_regL_0.001_regKR_0.1
+64     | 5.0687       | 375    | seed_4_regK_0.1_regL_0.1_regKR_0.1
+65     | 5.3131       | 230    | seed_4_regK_0.01_regL_0.01_regKR_0.1
+66     | 5.4724       | 188    | seed_4_regK_0.01_regL_0.1_regKR_0.1
+67     | 5.9234       | 281    | seed_4_regK_0.001_regL_0.1_regKR_0.1
+68     | 6.0704       | 162    | seed_4_regK_0.1_regL_0.01_regKR_0.1
+69     | 6.1611       | 226    | seed_4_regK_0.001_regL_0.01_regKR_0.1
+70     | 7.2440       | 244    | seed_4_regK_0.001_regL_0.001_regKR_0.1
+
+--------------------------------------------------------------------------------
+INCOMPLETE / FAILED TRAINING INSTANCES
+--------------------------------------------------------------------------------
+- seed_0_regK_0.001_regL_0.1_regKR_0.1  (File: exp_24_seed_0.log)
+- seed_4_regK_0.01_regL_0.001_regKR_0.1  (File: exp_35_seed_4.log)
+- seed_0_regK_0.01_regL_0.001_regKR_0.1  (File: exp_33_seed_0.log)
+- seed_0_regK_0.001_regL_0.1_regKR_0.01  (File: exp_21_seed_0.log)

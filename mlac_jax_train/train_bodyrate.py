@@ -706,8 +706,9 @@ if __name__ == "__main__":
         # return new_opt_state, new_meta_params, aux, final_grads
 
         # NOTE: alternative when nonzero grads for k_R
-        opt_state = update_opt(idx, grads_full, opt_state)
-        return opt_state, aux, grads_full
+        updates, new_opt_state = optimizer.update(grads_full, opt_state, meta_params)
+        new_meta_params = optax.apply_updates(meta_params, updates)
+        return new_opt_state, new_meta_params, aux, grads_full
 
     @partial(jax.jit, static_argnums=(7, 8))
     def step_pnorm(idx, opt_state, meta_params, pnorm_param, ensemble_params, t_knots, coefs, T, dt, regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P, regularizer_k_R, regularizer_Lambda, regularizer_K):
