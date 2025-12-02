@@ -48,10 +48,10 @@ do
 
     # Fetch Parameters
     PARAMS=$(python3 sweep_gen_params.py $exp_id)
-    read -r R_K R_L SEED <<< "$PARAMS"
+    read -r R_K R_L R_K_R SEED <<< "$PARAMS"
 
     # Create specific Run ID
-    RUN_ID="seed_${SEED}_regK_${R_K}_regL_${R_L}"
+    RUN_ID="seed_${SEED}_regK_${R_K}_regL_${R_L}_regKR_${R_K_R}"
 
     # Define Paths (with "noPnorm" and all params in name)
     DIR_NAME="${BATCH_TIMESTAMP}_${EXP_NAME}/${RUN_ID}"
@@ -72,6 +72,7 @@ do
         --meta_epochs 1000 \
         --reg_K $R_K \
         --reg_Lambda $R_L \
+        --reg_k_R $R_K_R \
         --output_dir $RESULT_DIR \
         --exp_name "${BATCH_TIMESTAMP}_${EXP_NAME}_${RUN_ID}" \
         --use_x64 > "${LOG_DIR}/exp_${exp_id}_seed_${SEED}.log" 2>&1

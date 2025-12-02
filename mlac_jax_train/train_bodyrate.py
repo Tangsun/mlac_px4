@@ -405,6 +405,7 @@ if __name__ == "__main__":
         b_2d_temp = jnp.cross(b_3d, b_1d_w)
         b_2d = b_2d_temp / jnp.linalg.norm(b_2d_temp)
         b_1d = jnp.cross(b_2d, b_3d)
+        b_1d /= jnp.linalg.norm(b_1d)       # NOTE: added to ensure orthonormality
 
         R_d = jnp.column_stack((b_1d, b_2d, b_3d))
 
@@ -691,22 +692,22 @@ if __name__ == "__main__":
             regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P, regularizer_k_R, regularizer_Lambda, regularizer_K
         )
 
-        def zero_attitude_gain_grads(path, leaf):
-            # path is a sequence of jtu.PathKeyEntry objects, e.g., (DictKey(key='gains'), DictKey(key='k_R'))
-            if len(path) == 2 and isinstance(path[0], jtu.DictKey) and path[0].key == 'gains':
-                if isinstance(path[1], jtu.DictKey) and (path[1].key == 'k_R'):
-                    return jnp.zeros_like(leaf)
-            return leaf
+        # def zero_attitude_gain_grads(path, leaf):
+        #     # path is a sequence of jtu.PathKeyEntry objects, e.g., (DictKey(key='gains'), DictKey(key='k_R'))
+        #     if len(path) == 2 and isinstance(path[0], jtu.DictKey) and path[0].key == 'gains':
+        #         if isinstance(path[1], jtu.DictKey) and (path[1].key == 'k_R'):
+        #             return jnp.zeros_like(leaf)
+        #     return leaf
 
-        final_grads = jtu.tree_map_with_path(zero_attitude_gain_grads, grads_full)
+        # final_grads = jtu.tree_map_with_path(zero_attitude_gain_grads, grads_full)
 
-        updates, new_opt_state = optimizer.update(final_grads, opt_state, meta_params)
-        new_meta_params = optax.apply_updates(meta_params, updates)
-        return new_opt_state, new_meta_params, aux, final_grads
+        # updates, new_opt_state = optimizer.update(final_grads, opt_state, meta_params)
+        # new_meta_params = optax.apply_updates(meta_params, updates)
+        # return new_opt_state, new_meta_params, aux, final_grads
 
         # NOTE: alternative when nonzero grads for k_R
-        # opt_state = update_opt(idx, grads_full, opt_state)
-        # return opt_state, aux, grads_full
+        opt_state = update_opt(idx, grads_full, opt_state)
+        return opt_state, aux, grads_full
 
     @partial(jax.jit, static_argnums=(7, 8))
     def step_pnorm(idx, opt_state, meta_params, pnorm_param, ensemble_params, t_knots, coefs, T, dt, regularizer_l2, regularizer_ctrl, regularizer_error, regularizer_P, regularizer_k_R, regularizer_Lambda, regularizer_K):
