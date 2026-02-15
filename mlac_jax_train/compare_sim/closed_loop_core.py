@@ -98,9 +98,21 @@ def run_smc_window(reference_data, initial_state, gains, attitude_time_constant=
     pos0 = jnp.array(initial_state[0:3])
     vel0 = jnp.array(initial_state[3:6])
     rpy0 = initial_state[6:9]
+
+    # --- START OF FIX ---
+    # Extract angular velocity if available (indices 9-11)
+    if initial_state.shape[0] >= 12:
+        omega0 = jnp.array(initial_state[9:12])
+    else:
+        # Fallback if your state vector is smaller
+        omega0 = jnp.zeros(3)
+    # --- END OF FIX ---
+
     R0 = jnp.array(Rotation.from_euler('xyz', rpy0).as_matrix())
     x0 = jnp.concatenate([pos0, vel0])
-    z0_tree = (x0, R0.flatten(), jnp.zeros(3))
+    
+    # USE omega0 instead of jnp.zeros(3)
+    z0_tree = (x0, R0.flatten(), omega0)
     z0_flat, unravel = jax.flatten_util.ravel_pytree(z0_tree)
 
     ref_partial = partial(
@@ -136,10 +148,19 @@ def run_smc_window(reference_data, initial_state, gains, attitude_time_constant=
     vel = x_hist[:, 3:6]
     R_mats = R_hist_flat.reshape(-1, 3, 3)
     euler = Rotation.from_matrix(np.asarray(R_mats)).as_euler('xyz', degrees=True)
+    
+    # --- FIX: Padding / Sub-in Value ---
+    # ERROR FIX: Use np.array() instead of np.asarray() to force a writable copy
+    Omega_hist_np = np.array(Omega_hist) 
+    
+    # Now this assignment will work because we own the memory
+    if Omega_hist_np.shape[0] > 1:
+        Omega_hist_np[-1] = Omega_hist_np[-2]
+
     return (
         np.asarray(ts_local),
         np.asarray(pos),
         np.asarray(vel),
         euler,
-        np.asarray(Omega_hist),
+        Omega_hist_np, 
     )
