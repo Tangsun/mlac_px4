@@ -67,7 +67,7 @@ def extract_filtered_rosbag_data(rosbag_path, pose_topic, velocity_topic, contro
     Returns:
         A tuple containing:
         - pose_data (tuple): (timestamps, positions, quaternions) as NumPy arrays.
-        - vel_data (tuple): (timestamps, angular_velocities) as NumPy arrays.
+        - vel_data (tuple): (timestamps, linear_body_velocities, angular_body_velocities).
         - initial_pose_msg (PoseStamped): The first pose message within the tracking window.
     """
     if not os.path.exists(rosbag_path):
@@ -118,7 +118,7 @@ def extract_filtered_rosbag_data(rosbag_path, pose_topic, velocity_topic, contro
     reader.seek(0)
     
     t_pose, q_pose, quat_pose = [], [], []
-    t_vel, w_vel = [], [] # Timestamps and angular velocities
+    t_vel, lin_vel_body, ang_vel_body = [], [], [] # Timestamps, linear and angular velocities
     initial_pose_msg = None
     
     t_cmd_att, euler_cmd = [], []
@@ -144,15 +144,16 @@ def extract_filtered_rosbag_data(rosbag_path, pose_topic, velocity_topic, contro
             elif topic == velocity_topic:
                 msg = deserialize_message(data, TwistStampedMsgClass)
                 t_vel.append(relative_time)
-                w_vel.append([msg.twist.angular.x, msg.twist.angular.y, msg.twist.angular.z])
+                lin_vel_body.append([msg.twist.linear.x, msg.twist.linear.y, msg.twist.linear.z])
+                ang_vel_body.append([msg.twist.angular.x, msg.twist.angular.y, msg.twist.angular.z])
                 
             # --- NEW: Handle control_log for commanded attitude ---
             elif topic == control_log_topic:
                 msg = deserialize_message(data, ControllerLogMsgClass)
                 t_cmd_att.append(relative_time)
-                euler_cmd.append([math.degrees(msg.reference_roll),
-                                  math.degrees(msg.reference_pitch),
-                                  math.degrees(msg.reference_yaw)])
+                euler_cmd.append([msg.reference_roll,
+                                  msg.reference_pitch,
+                                  msg.reference_yaw])
 
             # --- NEW: Handle attitude_setpoint for commanded body rates ---
             elif topic == att_sp_topic:
@@ -163,12 +164,30 @@ def extract_filtered_rosbag_data(rosbag_path, pose_topic, velocity_topic, contro
     print(f"Successfully extracted {len(t_pose)} pose points and {len(t_vel)} velocity points.")
     
     pose_data = (np.array(t_pose), np.array(q_pose), np.array(quat_pose))
-    vel_data = (np.array(t_vel), np.array(w_vel))
+    vel_data = (np.array(t_vel), np.array(lin_vel_body), np.array(ang_vel_body))
     
     cmd_data = ((np.array(t_cmd_att), np.array(euler_cmd)), 
                 (np.array(t_cmd_vel), np.array(w_cmd)))
 
     return pose_data, vel_data, cmd_data, initial_pose_msg
+
+
+def estimate_initial_world_velocity(pose_data, vel_data):
+    """
+    Convert the earliest logged body-frame velocity sample into world-frame
+    coordinates using the initial pose orientation. Falls back to zeros if
+    velocity data is unavailable.
+    """
+    _, lin_vel_body, _ = vel_data
+    _, _, quat_pose = pose_data
+
+    if lin_vel_body.size == 0 or quat_pose.size == 0:
+        return np.zeros(3)
+
+    v_body = lin_vel_body[0]
+    q_init = quat_pose[0]  # [x, y, z, w]
+    R0 = Rotation.from_quat(q_init).as_matrix()
+    return R0 @ v_body
 
 def npy_reference_func(t, ts_ref, r_ref, dr_ref, ddr_ref, yaw_ref, yaw_rate_ref):
     r = jnp.array([jnp.interp(t, ts_ref, r_ref[:, i]) for i in range(3)])
@@ -215,7 +234,7 @@ def calculate_smc_command(z, t, k_R, K_mat, Lambda_mat, reference_func):
     
     return f_d, Omega_cmd
 
-def simulation_ode_zoh(z, t, commands, dt):
+def simulation_ode_zoh(z, t, commands, dt, attitude_time_constant=0.02):
     """
     Dynamics-only ODE function. It takes a constant command for the integration step.
     """
@@ -225,27 +244,35 @@ def simulation_ode_zoh(z, t, commands, dt):
     R = R_flatten.reshape((3, 3))
 
     # Dynamics (using the provided constant commands)
-    dR = R @ hat(Omega_cmd)
+    dR = R @ hat(Omega_state)
     u_applied = f_d * R @ jnp.array([0., 0., 1.])
     H, C, g, _ = prior(q, dq)
     ddq = jnp.linalg.solve(H, u_applied - C @ dq - g)
     dx = jnp.concatenate((dq, ddq))
-    dOmega = (Omega_cmd - Omega_state) / dt
+    tau = max(attitude_time_constant, 1e-6)
+    dOmega = (Omega_cmd - Omega_state) / tau
     
     return dx, dR.flatten(), dOmega
 
-def run_jax_zoh_simulation(gt_data, initial_pose_msg, gains):
+def run_jax_zoh_simulation(gt_data, initial_pose_msg, gains, initial_velocity_world=None, attitude_time_constant=0.02):
     """
     Runs the JAX simulation using a zero-order-hold control loop.
     """
     # --- Setup ---
     ts_ref, r_ref, dr_ref, ddr_ref, yaw_ref, yaw_rate_ref = gt_data
     k_R, K_mat, Lambda_mat = gains
-    T_FINAL = ts_ref[-1]
-    DT = 0.02
+    ts_ref = jnp.asarray(ts_ref)
+    ts_sim_np = np.asarray(ts_ref)
+    r_ref = jnp.asarray(r_ref)
+    dr_ref = jnp.asarray(dr_ref)
+    ddr_ref = jnp.asarray(ddr_ref)
+    yaw_ref = jnp.asarray(yaw_ref)
+    yaw_rate_ref = jnp.asarray(yaw_rate_ref)
+    T_FINAL = float(ts_ref[-1])
+    DT = float(ts_ref[1] - ts_ref[0])
     
     # --- Create time steps for the simulation loop ---
-    ts_sim = jnp.arange(0.0, T_FINAL, DT)
+    ts_sim = ts_sim_np
 
     # --- Initial Conditions ---
     if initial_pose_msg:
@@ -257,7 +284,10 @@ def run_jax_zoh_simulation(gt_data, initial_pose_msg, gains):
     else:
         r0_jax, R0_jax = jnp.array(r_ref[0]), jnp.eye(3)
         
-    dr0_jax = jnp.array(dr_ref[0])
+    if initial_velocity_world is not None:
+        dr0_jax = jnp.array(initial_velocity_world)
+    else:
+        dr0_jax = jnp.array(dr_ref[0])
     x0_jax = jnp.concatenate([r0_jax, dr0_jax])
     z0_tree = (x0_jax, R0_jax.flatten(), jnp.zeros(3))
     z0_flat, z_unravel_func = jax.flatten_util.ravel_pytree(z0_tree)
@@ -272,7 +302,7 @@ def run_jax_zoh_simulation(gt_data, initial_pose_msg, gains):
         commands = calculate_smc_command(z_tree, t, k_R, K_mat, Lambda_mat, ref_func_partial)
 
         # 2. Define the dynamics function for the integrator, holding the command constant
-        ode_func_partial = partial(simulation_ode_zoh, commands=commands, dt=DT)
+        ode_func_partial = partial(simulation_ode_zoh, commands=commands, dt=DT, attitude_time_constant=attitude_time_constant)
         
         # 3. Integrate dynamics over one time step
         # Since odeint_fixed_step uses rk38 internally, we'll call it for a single step.
@@ -305,7 +335,7 @@ def run_jax_zoh_simulation(gt_data, initial_pose_msg, gains):
     euler_jax = Rotation.from_matrix(np.asarray(R_jax)).as_euler('xyz', degrees=True)
     print("--- JAX Simulation Complete ---")
 
-    return ts_sim, q_jax, euler_jax, Omega_hist
+    return jnp.asarray(ts_sim), q_jax, euler_jax, Omega_hist
 
 
 # --- JAX Simulation Functions (PID Controller) ---
@@ -375,7 +405,7 @@ def jax_flatten_wrapper_pid(z_flat, t, kr, kp, ki, kd, integral_limit, reference
     dz_tree = simulation_ode_pid(z_tree, t, kr, kp, ki, kd, integral_limit, ref_func_partial, dt)
     return jnp.concatenate(jax.tree_util.tree_leaves(dz_tree))
 
-def run_jax_simulation_pid(gt_data, initial_pose_msg, gains):
+def run_jax_simulation_pid(gt_data, initial_pose_msg, gains, initial_velocity_world=None):
     """
     Runs the JAX simulation using the PID controller.
     """
@@ -397,7 +427,10 @@ def run_jax_simulation_pid(gt_data, initial_pose_msg, gains):
         r0_jax, R0_jax = jnp.array(r_ref[0]), jnp.eye(3)
 
     # --- Add integral error to the initial state tree ---
-    dr0_jax = jnp.array(dr_ref[0])
+    if initial_velocity_world is not None:
+        dr0_jax = jnp.array(initial_velocity_world)
+    else:
+        dr0_jax = jnp.array(dr_ref[0])
     x0_jax = jnp.concatenate([r0_jax, dr0_jax])
     z0_tree = (x0_jax, R0_jax.flatten(), jnp.zeros(3), jnp.zeros(3)) # (x, R, Omega, integral_error)
     z0_flat, z_unravel_func = jax.flatten_util.ravel_pytree(z0_tree)
@@ -457,7 +490,7 @@ def plot_and_save_comparison(gt_data, gazebo_data, jax_data, cmd_data, output_di
     """
     # --- Unpack the data tuples ---
     ts_ref, r_ref, euler_gt = gt_data
-    (t_gazebo_pose, q_gazebo, euler_gazebo), (t_gazebo_vel, w_gazebo) = gazebo_data
+    (t_gazebo_pose, q_gazebo, euler_gazebo), (t_gazebo_vel, lin_vel_body_gazebo, w_gazebo) = gazebo_data
     ts_jax, q_jax, euler_jax, w_jax = jax_data
     (t_cmd_att, euler_cmd), (t_cmd_vel, w_cmd) = cmd_data
 
@@ -498,7 +531,7 @@ def plot_and_save_comparison(gt_data, gazebo_data, jax_data, cmd_data, output_di
     angle_labels = ['Roll', 'Pitch', 'Yaw']
     for i in range(3):
         axs_att[i].plot(ts_ref, euler_gt[:, i], 'k-.', label=f'Ground Truth Ref {angle_labels[i]}') # <-- ADD THIS LINE
-        axs_att[i].plot(t_cmd_att, euler_cmd[:, i], 'r--', label=f'Command (Rosbag) {angle_labels[i]}') # <-- NEW
+        axs_att[i].plot(t_cmd_att, np.rad2deg(euler_cmd[:, i]), 'r--', label=f'Command (Rosbag) {angle_labels[i]}') # <-- NEW
         axs_att[i].plot(ts_jax, euler_jax[:, i], 'b-', label=f'JAX {angle_labels[i]}')
         axs_att[i].plot(t_gazebo_pose, euler_gazebo[:, i], 'g:', label=f'Gazebo {angle_labels[i]}')
         axs_att[i].set_ylabel(f'{angle_labels[i]} (deg)'); axs_att[i].legend(); axs_att[i].grid(True)
@@ -556,11 +589,22 @@ if __name__ == '__main__':
         traj_data = np.load(args.traj_file)
 
         # Unpack the initial data
-        ts_ref = traj_data[:, 0]
+        ts_ref = traj_data[:, 0] - traj_data[0, 0]
         r_ref = traj_data[:, 1:4]
         dr_ref = traj_data[:, 4:7]
         yaw_ref = traj_data[:, 7]
         ddr_ref = traj_data[:, 8:11]
+
+        # Align reference horizon with the recorded window
+        recorded_duration = pose_data[0][-1]
+        valid_mask = ts_ref <= recorded_duration + 1e-6
+        if np.count_nonzero(valid_mask) < 2:
+            raise RuntimeError("Reference trajectory does not span the recorded window.")
+        ts_ref = ts_ref[valid_mask]
+        r_ref = r_ref[valid_mask]
+        dr_ref = dr_ref[valid_mask]
+        ddr_ref = ddr_ref[valid_mask]
+        yaw_ref = yaw_ref[valid_mask]
 
         if args.feedforward:
             yaw_rate_ref = np.gradient(np.unwrap(yaw_ref), ts_ref)
@@ -568,6 +612,7 @@ if __name__ == '__main__':
             yaw_rate_ref = np.zeros_like(ts_ref)
             
         gt_data_traj = (ts_ref, r_ref, dr_ref, ddr_ref, yaw_ref, yaw_rate_ref)
+        init_vel_world = estimate_initial_world_velocity(pose_data, vel_data)
         
         euler_gt = get_gt_reference_attitude(gt_data_traj) 
                    
@@ -589,7 +634,9 @@ if __name__ == '__main__':
             #             jnp.diag(jnp.array([1.0, 1.0, 1.0])),       # K_mat
             #             jnp.diag(jnp.array([1.0, 1.0, 2.0])))    # Lambda_mat
 
-            ts_jax, q_jax, euler_jax, w_jax_sim = run_jax_zoh_simulation(gt_data_traj, init_pose, gains)
+            ts_jax, q_jax, euler_jax, w_jax_sim = run_jax_zoh_simulation(
+                gt_data_traj, init_pose, gains, initial_velocity_world=init_vel_world
+            )
             print(ts_jax)
 
         elif args.controller_type == 'pid':
@@ -599,7 +646,9 @@ if __name__ == '__main__':
                         jnp.array([0.0, 0.0, 0.0]),         # ki
                         jnp.array([1.0, 1.0, 1.0]),         # kd
                         1.0)                                 # integral limit
-            ts_jax, q_jax, euler_jax, w_jax_sim = run_jax_simulation_pid(gt_data_traj, init_pose, gains_pid)
+            ts_jax, q_jax, euler_jax, w_jax_sim = run_jax_simulation_pid(
+                gt_data_traj, init_pose, gains_pid, initial_velocity_world=init_vel_world
+            )
 
         # --- Step 3: Plot Everything ---
         euler_gazebo = Rotation.from_quat(pose_data[2]).as_euler('xyz', degrees=True)
@@ -607,7 +656,7 @@ if __name__ == '__main__':
         output_dir = "bodyrate_figs/" + args.controller_type
         plot_and_save_comparison(
             (gt_data_traj[0], gt_data_traj[1], euler_gt), # Ground truth position
-            ((pose_data[0], pose_data[1], euler_gazebo), (vel_data[0], vel_data[1])), # Gazebo states
+            ((pose_data[0], pose_data[1], euler_gazebo), (vel_data[0], vel_data[1], vel_data[2])), # Gazebo states
             (ts_jax, q_jax, euler_jax, w_jax_sim), # JAX states
             cmd_data, # Commanded states from rosbag
             output_dir=output_dir

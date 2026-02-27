@@ -79,3 +79,6 @@ Archive/
 build/
 install/
 log/
+
+# Ignore rosbags
+ros2_px4_ws/mlac_test/windy_bag_*

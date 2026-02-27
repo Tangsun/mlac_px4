@@ -52,16 +52,23 @@ class MlacMissionNode(Node):
         # self.declare_parameter('Kd', [4.0, 4.0, 4.0], ParameterDescriptor(description="Derivative gains [Dx, Dy, Dz]"))
 
         # ------------------------------- KAI's tuning ------------------------------- #
-        # self.declare_parameter('Kp', [0.3, 0.3, 0.6], ParameterDescriptor(description="Proportional gains [Px, Py, Pz]"))
-        # self.declare_parameter('Ki', [0.001, 0.001, 0.05], ParameterDescriptor(description="Integral gains [Ix, Iy, Iz]"))
-        # self.declare_parameter('Kd', [0.045, 0.045, 0.4], ParameterDescriptor(description="Derivative gains [Dx, Dy, Dz]"))
-        self.declare_parameter('Kp', [0.125, 0.125, 0.125], ParameterDescriptor(description="Proportional gains [Px, Py, Pz]"))
-        self.declare_parameter('Ki', [0.0, 0.0, 0.0], ParameterDescriptor(description="Integral gains [Ix, Iy, Iz]"))
-        self.declare_parameter('Kd', [1.0, 1.0, 1.0], ParameterDescriptor(description="Derivative gains [Dx, Dy, Dz]"))
+        # self.declare_parameter('Kp', [1.5, 1.5, 1.0], ParameterDescriptor(description="Proportional gains [Px, Py, Pz]"))
+        # self.declare_parameter('Ki', [0.0, 0.0, 0.0], ParameterDescriptor(description="Integral gains [Ix, Iy, Iz]"))
+        # self.declare_parameter('Kd', [1.0, 1.0, 1.0], ParameterDescriptor(description="Derivative gains [Dx, Dy, Dz]"))
+
+        # ----------------------- Post rotation-fix tuning v1 ----------------------- #
+        self.declare_parameter('Kp', [2.0, 2.0, 2.0], ParameterDescriptor(description="Proportional gains [Px, Py, Pz]"))
+        self.declare_parameter('Ki', [0.5, 0.5, 0.8], ParameterDescriptor(description="Integral gains [Ix, Iy, Iz]"))
+        self.declare_parameter('Kd', [2.5, 2.5, 2.0], ParameterDescriptor(description="Derivative gains [Dx, Dy, Dz]"))\
+
+        # NOTE: Works well without wind (in `default` environment)
+        # self.declare_parameter('Kp', [0.125, 0.125, 0.125], ParameterDescriptor(description="Proportional gains [Px, Py, Pz]"))
+        # self.declare_parameter('Ki', [0.0, 0.0, 0.0], ParameterDescriptor(description="Integral gains [Ix, Iy, Iz]"))
+        # self.declare_parameter('Kd', [1.0, 1.0, 1.0], ParameterDescriptor(description="Derivative gains [Dx, Dy, Dz]"))
         # ----------------------------- down to here ... ----------------------------- #
 
-        self.declare_parameter('max_pos_err', [0.5, 0.5, 0.5], ParameterDescriptor(description="Max position error for PID saturation [err_x, err_y, err_z]"))
-        self.declare_parameter('max_vel_err', [1.0, 1.0, 1.0], ParameterDescriptor(description="Max velocity error for PID saturation [verr_x, verr_y, verr_z]"))
+        self.declare_parameter('max_pos_err', [2.0, 2.0, 1.0], ParameterDescriptor(description="Max position error for PID saturation [err_x, err_y, err_z]"))
+        self.declare_parameter('max_vel_err', [3.0, 3.0, 2.0], ParameterDescriptor(description="Max velocity error for PID saturation [verr_x, verr_y, verr_z]"))
         # self.declare_parameter('max_thrust_N', 2.6 * 9.81 / 0.760, ParameterDescriptor(description="Max thrust capability (N)"))
         self.declare_parameter('max_thrust_N', 2.0 * 9.81, ParameterDescriptor(description="Max thrust capability (N)"))    # NOTE(KAI): adjust max thrust with the hover thrust retrieved from position control
 
@@ -82,7 +89,7 @@ class MlacMissionNode(Node):
         self.declare_parameter('landing_position', [0.0, -2.0, 0.0], ParameterDescriptor(description="Landing target position [x, y, z] (m), z is target altitude before disarm"))
         
         self.declare_parameter('position_reached_threshold', 0.2, ParameterDescriptor(description="Threshold to consider a position reached (m)"))
-        self.declare_parameter('hover_duration_sec', 10.0, ParameterDescriptor(description="Duration to hover at initial/final points (s)"))    # NOTE(KAI): Increased hover duration for better thrust observation
+        self.declare_parameter('hover_duration_sec', 5.0, ParameterDescriptor(description="Duration to hover at initial/final points (s)"))    # NOTE(KAI): Increased hover duration for better thrust observation
         self.declare_parameter('landing_descent_rate_mps', 0.3, ParameterDescriptor(description="Descent rate for landing (m/s positive value)"))
         self.declare_parameter('wait_for_offboard_arm_timeout_sec', 30.0, ParameterDescriptor(description="Timeout (seconds) to wait for OFFBOARD and ARM after START command"))
 
@@ -323,7 +330,7 @@ class MlacMissionNode(Node):
         if not self.is_vehicle_state_received: return
         # Assuming velocity is inFLU frame, needs conversion to world (NED or ENU)
         # For ENU world frame (like MAVROS default local_position):
-        R_body_to_world = quaternion_to_rotation_matrix(self.current_vehicle_state_py.q).T # This is R_frd_to_ned or R_flu_to_enu
+        R_body_to_world = quaternion_to_rotation_matrix(self.current_vehicle_state_py.q)
         self.current_vehicle_state_py.v = R_body_to_world @ np.array([msg.twist.linear.x, msg.twist.linear.y, msg.twist.linear.z])
         self.current_vehicle_state_py.w = np.array([msg.twist.angular.x, msg.twist.angular.y, msg.twist.angular.z]) # Body rates, usually fine as is
 
@@ -389,7 +396,7 @@ class MlacMissionNode(Node):
             if self.outer_loop_ctrl.t_last_ == 0.0: # Proxy for first run or after reset
                  self.outer_loop_ctrl.reset(self.current_vehicle_state_py, current_goal_from_fsm)
 
-            t_ctrl_start = time.perf_counter()
+            # t_ctrl_start = time.perf_counter()
             
             att_cmd_py: AttCmdClass = self.outer_loop_ctrl.compute_attitude_command(
                 t=(current_ros_time.nanoseconds / 1e9), # Pass current time to controller
@@ -397,8 +404,8 @@ class MlacMissionNode(Node):
                 goal=current_goal_from_fsm
             )
             
-            t_ctrl_end = time.perf_counter()
-            self.get_logger().info(f"Outer loop controller computation time: {(t_ctrl_end - t_ctrl_start)*1000:.3f} ms", throttle_duration_sec=1.0)
+            # t_ctrl_end = time.perf_counter()
+            # self.get_logger().info(f"Outer loop controller computation time: {(t_ctrl_end - t_ctrl_start)*1000:.3f} ms", throttle_duration_sec=1.0)
 
         except Exception as e:
             self.get_logger().error(f"Error in outer_loop_ctrl.compute_attitude_command: {e}\n{traceback.format_exc()}")
@@ -444,7 +451,7 @@ class MlacMissionNode(Node):
         att_msg.header.stamp = current_ros_time.to_msg()
         att_msg.orientation = quaternion_array_to_msg(att_cmd_py.q)
         
-        R_body_to_world_desired = quaternion_to_rotation_matrix(att_cmd_py.q).T
+        R_body_to_world_desired = quaternion_to_rotation_matrix(att_cmd_py.q)
         desired_body_z_axis_in_world = R_body_to_world_desired[:, 2]
         thrust_force_along_desired_z = np.dot(att_cmd_py.F_W, desired_body_z_axis_in_world)
         normalized_thrust = np.clip(thrust_force_along_desired_z / (self.max_thrust_N / self.curr_hover_thrust), 0.0, 1.0)
