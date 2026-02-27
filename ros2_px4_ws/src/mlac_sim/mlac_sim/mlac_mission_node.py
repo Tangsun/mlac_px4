@@ -325,7 +325,7 @@ class MlacMissionNode(Node):
         if not self.is_vehicle_state_received: return
         # Assuming velocity is inFLU frame, needs conversion to world (NED or ENU)
         # For ENU world frame (like MAVROS default local_position):
-        R_body_to_world = quaternion_to_rotation_matrix(self.current_vehicle_state_py.q).T # This is R_frd_to_ned or R_flu_to_enu
+        R_body_to_world = quaternion_to_rotation_matrix(self.current_vehicle_state_py.q)
         self.current_vehicle_state_py.v = R_body_to_world @ np.array([msg.twist.linear.x, msg.twist.linear.y, msg.twist.linear.z])
         self.current_vehicle_state_py.w = np.array([msg.twist.angular.x, msg.twist.angular.y, msg.twist.angular.z]) # Body rates, usually fine as is
 
@@ -446,7 +446,7 @@ class MlacMissionNode(Node):
         att_msg.header.stamp = current_ros_time.to_msg()
         att_msg.orientation = quaternion_array_to_msg(att_cmd_py.q)
         
-        R_body_to_world_desired = quaternion_to_rotation_matrix(att_cmd_py.q).T
+        R_body_to_world_desired = quaternion_to_rotation_matrix(att_cmd_py.q)
         desired_body_z_axis_in_world = R_body_to_world_desired[:, 2]
         thrust_force_along_desired_z = np.dot(att_cmd_py.F_W, desired_body_z_axis_in_world)
         normalized_thrust = np.clip(thrust_force_along_desired_z / (self.max_thrust_N / self.curr_hover_thrust), 0.0, 1.0)

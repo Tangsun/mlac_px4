@@ -32,12 +32,12 @@ def simulation_ode_euler(state, commands, mass, g_acc=9.81, hov_thrust=0.727):
     acc = R @ np.array([0.0, 0.0, f_d]) - np.array([0.0, 0.0, g_acc])
 
     roll, pitch = rpy[0], rpy[1]
-    inv_matrix = np.linalg.inv(np.array([
-        [np.cos(pitch) * np.cos(roll), -np.sin(roll), 0.0],
-        [np.cos(pitch) * np.sin(roll),  np.cos(roll), 0.0],
-        [-np.sin(pitch),               0.0,          1.0],
-    ]))
-    rpy_dot = inv_matrix @ omega_cmd
+    E = np.array([
+        [1.0,  0.0,            -np.sin(pitch)                  ],
+        [0.0,  np.cos(roll),    np.cos(pitch) * np.sin(roll)   ],
+        [0.0, -np.sin(roll),    np.cos(pitch) * np.cos(roll)   ],
+    ])
+    rpy_dot = np.linalg.solve(E, omega_cmd)
 
     return np.concatenate([vel, acc, rpy_dot])
 

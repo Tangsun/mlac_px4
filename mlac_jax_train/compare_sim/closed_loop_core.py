@@ -108,7 +108,7 @@ def run_smc_window(reference_data, initial_state, gains, attitude_time_constant=
         omega0 = jnp.zeros(3)
     # --- END OF FIX ---
 
-    R0 = jnp.array(Rotation.from_euler('xyz', rpy0).as_matrix())
+    R0 = jnp.array(Rotation.from_euler('XYZ', rpy0).as_matrix())
     x0 = jnp.concatenate([pos0, vel0])
     
     # USE omega0 instead of jnp.zeros(3)
@@ -147,7 +147,7 @@ def run_smc_window(reference_data, initial_state, gains, attitude_time_constant=
     pos = x_hist[:, :3]
     vel = x_hist[:, 3:6]
     R_mats = R_hist_flat.reshape(-1, 3, 3)
-    euler = Rotation.from_matrix(np.asarray(R_mats)).as_euler('xyz', degrees=True)
+    euler = Rotation.from_matrix(np.asarray(R_mats)).as_euler('zyx', degrees=True)[:, ::-1]
     
     # --- FIX: Padding / Sub-in Value ---
     # ERROR FIX: Use np.array() instead of np.asarray() to force a writable copy
