@@ -74,8 +74,8 @@ class OuterLoop:
             self.pnorm = convert_p_qbar(2.0)
             self.W = None
             self.b = None
-            self.Λ = np.eye(3)
-            self.K = np.eye(3)
+            self.Λ = 0.5 * np.diag([1.0, 1.0, 1.5])
+            self.K = 1.0 * np.diag([1.0, 1.0, 1.5])
             self.P = np.eye(3)
         
         self.params_ = params
@@ -260,13 +260,10 @@ class OuterLoop:
 
 
         elif self.controller  == 'coml_debug':
-            # ... (your existing COML_DEBUG F_W calculation, ensure it uses goal.a) ...
-            # Note that main script e, edot is defined as goal - actual
-            # Let's use e_c and edot_c for corrected terms
             e_c, edot_c = -e, -edot
 
-            current_Lambda = np.diag([2.5, 1.0, 1.0])  # Debug mode Lambda, adjust as needed
-            current_K_feedback = 2 * np.eye(3)  # Assuming identity for debug mode, adjust as needed
+            current_Lambda = self.Λ
+            current_K_feedback = self.K
             
             s = edot_c + current_Lambda@e_c
             v_ref_terms, dv_ref_terms = goal.v - current_Lambda@e_c, goal.a - current_Lambda@edot_c

@@ -42,6 +42,21 @@ def simulation_ode_euler(state, commands, mass, g_acc=9.81, hov_thrust=0.727):
     return np.concatenate([vel, acc, rpy_dot])
 
 
+def simulation_ode_euler_fixed_attitude(state, commands, mass, g_acc=9.81, hov_thrust=0.727):
+    """
+    Translational-only dynamics: RPY is treated as externally provided (read-only).
+    state: [pos(3), vel(3), rpy(3)]  -- rpy used for R but not propagated.
+    commands: (thrust_norm, ignored)
+    """
+    thrust_norm, _ = commands
+    vel = state[3:6]
+    rpy = state[6:9]
+    R = euler_to_rotation_matrix(rpy)
+    f_d = thrust_norm * g_acc / hov_thrust
+    acc = R @ np.array([0.0, 0.0, f_d]) - np.array([0.0, 0.0, g_acc])
+    return np.concatenate([vel, acc, np.zeros(3)])
+
+
 def rk4_step(dynamics_fn, state, dt, *args, **kwargs):
     k1 = dynamics_fn(state, *args, **kwargs)
     k2 = dynamics_fn(state + 0.5 * dt * k1, *args, **kwargs)

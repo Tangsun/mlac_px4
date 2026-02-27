@@ -288,6 +288,25 @@ def resample_state_to_times(target_times, pose_data, velocity_data):
     return np.column_stack([pos_interp, vel_interp, rpy_interp])
 
 
+def extract_open_loop_measured(rosbag_path, **topic_kwargs):
+    """
+    Extract data for open-loop comparison using measured body rates and attitude
+    (for rosbags recorded in attitude control mode where setpoint body_rate fields
+    are not meaningful). Returns data keyed to velocity_body timestamps.
+    """
+    data = extract_attitude_data(rosbag_path, **topic_kwargs)
+    t_vel, lin_vel_body, ang_vel_body = data["velocity"]
+    t_cmd, thrust_cmd, _ = data["bodyrate_cmd"]
+    thrust_interp = np.interp(t_vel, t_cmd, thrust_cmd)
+    return {
+        "t": t_vel,
+        "thrust": thrust_interp,
+        "ang_vel": ang_vel_body,
+        "pose": data["pose"],
+        "velocity": data["velocity"],
+    }
+
+
 def plot_pose_vs_reference(pose_data, reference_data, output_path=None):
     """
     Plot measured position/yaw against recorded references for a quick sanity check.

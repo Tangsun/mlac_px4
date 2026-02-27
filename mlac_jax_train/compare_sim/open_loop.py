@@ -14,17 +14,21 @@ BODYRATE_SIM_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, "..", "bodyrate_sim_
 if BODYRATE_SIM_DIR not in sys.path:
     sys.path.append(BODYRATE_SIM_DIR)
 
-from rosbag_utils import resample_state_to_times  # noqa: E402
+from rosbag_utils import resample_state_to_times, extract_open_loop_measured  # noqa: E402
 from window_utils import generate_time_windows  # noqa: E402
-from dynamics_numpy import simulation_ode_euler, rk4_step  # noqa: E402
+from dynamics_numpy import simulation_ode_euler, simulation_ode_euler_fixed_attitude, rk4_step  # noqa: E402
 from openloop_comparison_np import extract_open_loop_data_att_only_same_timing  # noqa: E402
 
 
-def simulate_window(t_cmd, thrust, body_rates, start_idx, end_idx, initial_state, mass):
+def simulate_window(t_cmd, thrust, body_rates, start_idx, end_idx,
+                    initial_state, mass, dynamics_fn=simulation_ode_euler,
+                    measured_rpy=None):
     """
-    Run an open-loop forward simulation over [start_idx, end_idx) with the same
-    dynamics as the legacy open-loop script, resetting the state at the start of
-    each window.
+    Run an open-loop forward simulation over [start_idx, end_idx).
+
+    When measured_rpy is provided (Mode B), the RPY portion of the state is
+    overwritten from rosbag data after each integration step so that only
+    translational dynamics are tested.
     """
     state = initial_state.copy()
     history = [state.copy()]
@@ -33,8 +37,10 @@ def simulate_window(t_cmd, thrust, body_rates, start_idx, end_idx, initial_state
         if dt <= 0:
             continue
         command = (thrust[i], body_rates[i])
-        dynamics = lambda s, cmd=command: simulation_ode_euler(s, cmd, mass)
+        dynamics = lambda s, cmd=command: dynamics_fn(s, cmd, mass)
         state = rk4_step(dynamics, state, dt)
+        if measured_rpy is not None:
+            state[6:9] = measured_rpy[i + 1]
         history.append(state.copy())
     return np.asarray(history)
 
@@ -57,25 +63,57 @@ def main():
                         help="Optional npz output file to store per-window results.")
     parser.add_argument("--plot-dir", type=str, default=None,
                         help="If set, saves comparison plots to this directory.")
+    parser.add_argument("--rotation-mode", type=str, default="commanded",
+                        choices=["commanded", "measured-rates", "measured-attitude"],
+                        help="Source of rotational input: "
+                             "'commanded' = setpoint body rates (default), "
+                             "'measured-rates' = measured angular velocity from velocity_body, "
+                             "'measured-attitude' = measured quaternion from pose (translational-only test).")
     args = parser.parse_args()
 
-    gazebo_states, commanded_inputs, init_pose, init_vel_msg = extract_open_loop_data_att_only_same_timing(
-        args.rosbag, args.pose_topic, args.velocity_topic, args.control_log_topic, args.attitude_setpoint_topic
-    )
-    if gazebo_states[0] is None or gazebo_states[0].size == 0:
-        raise RuntimeError("No pose data extracted from rosbag.")
+    rotation_mode = args.rotation_mode
 
-    t_cmd, thrust_cmd, w_cmd = commanded_inputs
-    t_pose, q_pose, quat_pose, t_vel, vel_body = gazebo_states
-    pose_data = (t_pose, q_pose, quat_pose)
-    # velocity body data is only linear, set angular part zeros for compatibility
-    velocity_data = (t_vel, vel_body, np.zeros_like(vel_body))
+    if rotation_mode == "commanded":
+        gazebo_states, commanded_inputs, init_pose, init_vel_msg = \
+            extract_open_loop_data_att_only_same_timing(
+                args.rosbag, args.pose_topic, args.velocity_topic,
+                args.control_log_topic, args.attitude_setpoint_topic
+            )
+        if gazebo_states[0] is None or gazebo_states[0].size == 0:
+            raise RuntimeError("No pose data extracted from rosbag.")
+        t_cmd, thrust_cmd, w_cmd = commanded_inputs
+        t_pose, q_pose, quat_pose, t_vel, vel_body = gazebo_states
+        pose_data = (t_pose, q_pose, quat_pose)
+        velocity_data = (t_vel, vel_body, np.zeros_like(vel_body))
+        dynamics_fn = simulation_ode_euler
+    else:
+        mdata = extract_open_loop_measured(
+            args.rosbag,
+            pose_topic=args.pose_topic,
+            velocity_topic=args.velocity_topic,
+            control_log_topic=args.control_log_topic,
+            att_setpoint_topic=args.attitude_setpoint_topic,
+        )
+        t_cmd = mdata["t"]
+        thrust_cmd = mdata["thrust"]
+        w_cmd = mdata["ang_vel"]
+        pose_data = mdata["pose"]
+        velocity_data = mdata["velocity"]
+        if rotation_mode == "measured-rates":
+            dynamics_fn = simulation_ode_euler
+        else:
+            dynamics_fn = simulation_ode_euler_fixed_attitude
+
     measured_states = resample_state_to_times(t_cmd, pose_data, velocity_data)
+    measured_rpy_all = measured_states[:, 6:9] if rotation_mode == "measured-attitude" else None
 
     window_step = args.window_step if args.window_step is not None else args.window_duration
     total_samples = measured_states.shape[0]
     pred_states = np.zeros_like(measured_states)
     pred_valid = np.zeros(total_samples, dtype=bool)
+
+    print(f"Rotation mode: {rotation_mode}")
+    print(f"Timeline samples: {total_samples}, duration: {t_cmd[-1] - t_cmd[0]:.2f}s")
 
     results = []
     for w_idx, (start_t, end_t, start_i, end_i) in enumerate(
@@ -86,7 +124,9 @@ def main():
 
         initial_state = measured_states[start_i].copy()
         predicted_window = simulate_window(
-            t_cmd, thrust_cmd, w_cmd, start_i, end_i, initial_state, args.mass
+            t_cmd, thrust_cmd, w_cmd, start_i, end_i, initial_state, args.mass,
+            dynamics_fn=dynamics_fn,
+            measured_rpy=measured_rpy_all,
         )
         measured_window = measured_states[start_i:end_i]
 

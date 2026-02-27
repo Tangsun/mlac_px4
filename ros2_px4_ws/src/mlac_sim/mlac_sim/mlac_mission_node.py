@@ -52,9 +52,14 @@ class MlacMissionNode(Node):
         # self.declare_parameter('Kd', [4.0, 4.0, 4.0], ParameterDescriptor(description="Derivative gains [Dx, Dy, Dz]"))
 
         # ------------------------------- KAI's tuning ------------------------------- #
-        self.declare_parameter('Kp', [1.5, 1.5, 1.0], ParameterDescriptor(description="Proportional gains [Px, Py, Pz]"))
-        self.declare_parameter('Ki', [0.0, 0.0, 0.0], ParameterDescriptor(description="Integral gains [Ix, Iy, Iz]"))
-        self.declare_parameter('Kd', [1.0, 1.0, 1.0], ParameterDescriptor(description="Derivative gains [Dx, Dy, Dz]"))\
+        # self.declare_parameter('Kp', [1.5, 1.5, 1.0], ParameterDescriptor(description="Proportional gains [Px, Py, Pz]"))
+        # self.declare_parameter('Ki', [0.0, 0.0, 0.0], ParameterDescriptor(description="Integral gains [Ix, Iy, Iz]"))
+        # self.declare_parameter('Kd', [1.0, 1.0, 1.0], ParameterDescriptor(description="Derivative gains [Dx, Dy, Dz]"))
+
+        # ----------------------- Post rotation-fix tuning v1 ----------------------- #
+        self.declare_parameter('Kp', [2.0, 2.0, 2.0], ParameterDescriptor(description="Proportional gains [Px, Py, Pz]"))
+        self.declare_parameter('Ki', [0.5, 0.5, 0.8], ParameterDescriptor(description="Integral gains [Ix, Iy, Iz]"))
+        self.declare_parameter('Kd', [2.5, 2.5, 2.0], ParameterDescriptor(description="Derivative gains [Dx, Dy, Dz]"))\
 
         # NOTE: Works well without wind (in `default` environment)
         # self.declare_parameter('Kp', [0.125, 0.125, 0.125], ParameterDescriptor(description="Proportional gains [Px, Py, Pz]"))
@@ -62,8 +67,8 @@ class MlacMissionNode(Node):
         # self.declare_parameter('Kd', [1.0, 1.0, 1.0], ParameterDescriptor(description="Derivative gains [Dx, Dy, Dz]"))
         # ----------------------------- down to here ... ----------------------------- #
 
-        self.declare_parameter('max_pos_err', [0.5, 0.5, 0.5], ParameterDescriptor(description="Max position error for PID saturation [err_x, err_y, err_z]"))
-        self.declare_parameter('max_vel_err', [1.0, 1.0, 1.0], ParameterDescriptor(description="Max velocity error for PID saturation [verr_x, verr_y, verr_z]"))
+        self.declare_parameter('max_pos_err', [2.0, 2.0, 1.0], ParameterDescriptor(description="Max position error for PID saturation [err_x, err_y, err_z]"))
+        self.declare_parameter('max_vel_err', [3.0, 3.0, 2.0], ParameterDescriptor(description="Max velocity error for PID saturation [verr_x, verr_y, verr_z]"))
         # self.declare_parameter('max_thrust_N', 2.6 * 9.81 / 0.760, ParameterDescriptor(description="Max thrust capability (N)"))
         self.declare_parameter('max_thrust_N', 2.0 * 9.81, ParameterDescriptor(description="Max thrust capability (N)"))    # NOTE(KAI): adjust max thrust with the hover thrust retrieved from position control
 

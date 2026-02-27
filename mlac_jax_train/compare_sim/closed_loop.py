@@ -112,6 +112,37 @@ def plot_closed_loop_trajectories(
     fig_pos.savefig(os.path.join(output_dir, "comparison_positions.png"))
     plt.close(fig_pos)
 
+    # Velocity plot
+    fig_vel, axs_vel = plt.subplots(3, 1, figsize=(15, 10), sharex=True)
+    vel_labels = ['X', 'Y', 'Z']
+    for i in range(3):
+        axs_vel[i].plot(ts_axis, measured_vel[:, i], label='ROS Measured')
+        axs_vel[i].plot(ts_axis, jax_vel[:, i], label='JAX Sim')
+        axs_vel[i].plot(ts_axis, ref_vel[:, i], '--', label='Ref Cmd')
+        axs_vel[i].set_ylabel(f'{vel_labels[i]} dot (m/s)')
+        axs_vel[i].grid(True)
+    axs_vel[2].set_xlabel('Time (s)')
+    axs_vel[0].legend(loc='upper right')
+    fig_vel.suptitle('Velocity Comparison')
+    fig_vel.tight_layout(rect=[0, 0.03, 1, 0.95])
+    fig_vel.savefig(os.path.join(output_dir, "comparison_velocities.png"))
+    plt.close(fig_vel)
+
+    # Attitude plot
+    fig_att, axs_att = plt.subplots(3, 1, figsize=(15, 10), sharex=True)
+    att_labels = ['Roll', 'Pitch', 'Yaw']
+    for i in range(3):
+        axs_att[i].plot(ts_axis, measured_rpy_deg[:, i], label='ROS Measured')
+        axs_att[i].plot(ts_axis, jax_euler_deg[:, i], label='JAX Sim')
+        axs_att[i].set_ylabel(f'{att_labels[i]} (deg)')
+        axs_att[i].grid(True)
+    axs_att[2].set_xlabel('Time (s)')
+    axs_att[0].legend(loc='upper right')
+    fig_att.suptitle('Attitude Comparison')
+    fig_att.tight_layout(rect=[0, 0.03, 1, 0.95])
+    fig_att.savefig(os.path.join(output_dir, "comparison_attitude.png"))
+    plt.close(fig_att)
+
 
 def main():
     parser = argparse.ArgumentParser(description="Rolling-window closed-loop comparison (SMC).")

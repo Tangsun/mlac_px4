@@ -1,15 +1,27 @@
 #!/usr/bin/env python3
+"""
+Launch PX4 SITL + MAVROS + mlac_mission_node for bodyrate controller testing.
+
+Typical usage (diagnostic trajectory with default world):
+  python3 launch_traj_tracking_bodyrate.py "phase2 rotation fix test"
+
+With circle trajectory and auto-kill:
+  python3 launch_traj_tracking_bodyrate.py "circle tracking" \
+      --trajectory_file circle_r2.0_t20s_alt1.5_initpsi0deg_pointToCenter_50hz_11col.npy \
+      --auto_kill_duration_sec 120
+
+For Kai's machine:
+  python3 launch_traj_tracking_bodyrate.py "test" --directory Kai
+"""
 
 import subprocess
 import os
 import time
 import datetime
-import argparse # For command-line arguments
+import argparse
+
 
 def log_mission_details(log_file_path, mission_description, bag_directory_name):
-    """
-    Appends mission details to the specified log file.
-    """
     try:
         os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
         current_time_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -23,10 +35,8 @@ def log_mission_details(log_file_path, mission_description, bag_directory_name):
     except Exception as e:
         print(f"Error writing to log file {log_file_path}: {e}")
 
-def run_tmux_commands(session_name, commands):
-    """
-    Sets up a TMUX session with multiple panes, running specific commands.
-    """
+
+def run_tmux_commands(session_name, commands, auto_kill_duration_sec=0):
     num_panes = len(commands)
     if num_panes == 0:
         print("No commands provided.")
@@ -34,237 +44,251 @@ def run_tmux_commands(session_name, commands):
 
     try:
         print(f"Checking for existing TMUX session: {session_name}")
-        check_session_cmd = ["tmux", "has-session", "-t", session_name]
-        session_exists = subprocess.run(check_session_cmd, capture_output=True, text=True).returncode == 0
+        session_exists = subprocess.run(
+            ["tmux", "has-session", "-t", session_name],
+            capture_output=True, text=True
+        ).returncode == 0
 
         if session_exists:
-            print(f"TMUX session '{session_name}' already exists. Killing it and starting fresh.")
+            print(f"TMUX session '{session_name}' already exists. Killing it.")
             subprocess.run(["tmux", "kill-session", "-t", session_name], check=True)
-            time.sleep(1) # Give it a moment to die
+            time.sleep(1)
 
         print(f"Starting new TMUX session: {session_name}")
-        subprocess.run(["tmux", "new-session", "-d", "-s", session_name, "-n", "ROS_Sim"], check=True)
-        print(f"Session '{session_name}' created.")
+        subprocess.run(["tmux", "new-session", "-d", "-s", session_name, "-n", "bodyrate_test"], check=True)
         time.sleep(1)
 
-        # Pane creation logic (adjust layout as preferred)
-        # This creates a sequence of panes, relying on `select-layout tiled`
-        if num_panes > 1: # For 2nd command/pane (index 1)
-            subprocess.run(["tmux", "split-window", "-v", "-t", f"{session_name}:0.0"], check=True); time.sleep(0.2)
-        if num_panes > 2: # For 3rd command/pane (index 2)
-            subprocess.run(["tmux", "split-window", "-h", "-t", f"{session_name}:0.0"], check=True); time.sleep(0.2) # Splits the top-left pane
-        if num_panes > 3: # For 4th command/pane (index 3)
-            subprocess.run(["tmux", "split-window", "-h", "-t", f"{session_name}:0.1"], check=True); time.sleep(0.2) # Splits the bottom-left pane
-        if num_panes > 4: # For 5th command/pane (index 4)
-             # This will split the top-left (0.0) pane vertically again.
-            subprocess.run(["tmux", "split-window", "-v", "-t", f"{session_name}:0.0"], check=True); time.sleep(0.2)
-        if num_panes > 5: # For 6th command/pane (index 5)
-            # This will split the (original) top-right (0.2) pane vertically.
-            subprocess.run(["tmux", "split-window", "-v", "-t", f"{session_name}:0.2"], check=True); time.sleep(0.2)
-        if num_panes > 6: # For 7th command/pane (index 6)
-            # This will split the (original) bottom-left (0.1) pane vertically.
-            subprocess.run(["tmux", "split-window", "-v", "-t", f"{session_name}:0.1"], check=True); time.sleep(0.2)
-        # Add more splits here if you have > 7 commands, adjusting targets carefully or using a more programmatic approach.
+        if num_panes > 1: subprocess.run(["tmux", "split-window", "-v", "-t", f"{session_name}:0.0"], check=True); time.sleep(0.2)
+        if num_panes > 2: subprocess.run(["tmux", "split-window", "-h", "-t", f"{session_name}:0.0"], check=True); time.sleep(0.2)
+        if num_panes > 3: subprocess.run(["tmux", "split-window", "-h", "-t", f"{session_name}:0.1"], check=True); time.sleep(0.2)
+        if num_panes > 4: subprocess.run(["tmux", "split-window", "-v", "-t", f"{session_name}:0.0"], check=True); time.sleep(0.2)
+        if num_panes > 5: subprocess.run(["tmux", "split-window", "-v", "-t", f"{session_name}:0.2"], check=True); time.sleep(0.2)
+        if num_panes > 6: subprocess.run(["tmux", "split-window", "-v", "-t", f"{session_name}:0.1"], check=True); time.sleep(0.2)
+        if num_panes > 7: subprocess.run(["tmux", "split-window", "-h", "-t", f"{session_name}:0.3"], check=True); time.sleep(0.2)
 
         print("Sending commands to panes...")
         for i, command_string in enumerate(commands):
-            target_pane = f"{session_name}:0.{i}" # TMUX numbers panes 0, 1, 2... after splits in order of creation
-            print(f"  Sending to pane {i} (TMUX target {target_pane}): {command_string[:100]}...")
+            target_pane = f"{session_name}:0.{i}"
+            print(f"  Pane {i}: {command_string[:100]}...")
             subprocess.run(["tmux", "send-keys", "-t", target_pane, command_string, "C-m"], check=True)
-            time.sleep(0.5) # Increased sleep slightly
+            time.sleep(0.5)
 
         if num_panes > 1:
-            print("Arranging panes using 'tiled' layout...")
             subprocess.run(["tmux", "select-layout", "-t", f"{session_name}:0", "tiled"], check=True)
 
         print(f"\nTMUX session '{session_name}' is set up.")
-        print("To attach, run: tmux attach-session -t", session_name)
-        print("The script will now attempt to attach automatically.")
-        os.execvp("tmux", ["tmux", "attach-session", "-t", session_name])
 
+        if auto_kill_duration_sec and auto_kill_duration_sec > 0:
+            print(f"Simulation will run for {auto_kill_duration_sec} seconds.")
+            time.sleep(auto_kill_duration_sec)
+
+            print(f"Sending Ctrl+C to all panes...")
+            for i in range(num_panes):
+                target_pane = f"{session_name}:0.{i}"
+                try:
+                    subprocess.run(["tmux", "send-keys", "-t", target_pane, "C-c"], check=False)
+                    time.sleep(0.1)
+                    subprocess.run(["tmux", "send-keys", "-t", target_pane, "C-c"], check=False)
+                except Exception:
+                    pass
+
+            time.sleep(2)
+            print(f"Killing TMUX session '{session_name}'...")
+            subprocess.run(["tmux", "kill-session", "-t", session_name], check=True)
+            print("Session killed.")
+        else:
+            print("To attach: tmux attach-session -t", session_name)
+            os.execvp("tmux", ["tmux", "attach-session", "-t", session_name])
+
+    except KeyboardInterrupt:
+        print("\nCtrl+C detected! Shutting down.")
     except subprocess.CalledProcessError as e:
-        print(f"Error setting up TMUX session: {e}")
-        print(f"  To clean up a failed new session, try: tmux kill-session -t {session_name}")
+        print(f"Error setting up TMUX: {e}")
     except FileNotFoundError:
-        print("Error: 'tmux' command not found. Is tmux installed and in your PATH?")
+        print("Error: 'tmux' not found.")
     except Exception as e:
-        print(f"An unexpected error occurred: {e}")
+        print(f"Unexpected error: {e}")
+    finally:
+        print(f"\n--- Cleaning up TMUX session '{session_name}' ---")
+        session_exists = subprocess.run(
+            ["tmux", "has-session", "-t", session_name],
+            capture_output=True
+        ).returncode == 0
+        if session_exists:
+            try:
+                for i in range(len(commands)):
+                    subprocess.run(["tmux", "send-keys", "-t", f"{session_name}:0.{i}", "C-c"], check=False)
+                time.sleep(1)
+                subprocess.run(["tmux", "kill-session", "-t", session_name], check=True, capture_output=True)
+                print(f"Session '{session_name}' killed.")
+            except subprocess.CalledProcessError:
+                print(f"Session '{session_name}' may have already closed.")
+        else:
+            print(f"Session '{session_name}' already gone.")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Run PX4 SITL, MAVROS, mlac_node, record ROS bag, and log mission details."
+        description="Launch PX4 SITL + MAVROS + mlac_mission_node for bodyrate controller testing."
     )
-    parser.add_argument(
-        "mission_description",
-        type=str,
-        help="A brief description of the mission/test being recorded."
-    )
-
-    parser.add_argument(
-        "--trajectory_file",
-        type=str,
-        # default="setpoint_hold_x1.0_y1.0_z4.0_t20.0s_50hz_8col.npy", # Default to your new setpoint trajectory
-        # default = "N50_T30.0_spline_11col_zero_yaw.npy",
-        # default = "circle_r2.0_t20.0s_alt2.0_initpsi0deg_50hz_11col.npy",
-        # default = "setpoint_hold_x0.0_y0.0_z2.0_t20.0s_psi60deg_50hz_11col.npy",
-        default = "setpoint_rot_yaw_x0.0_y0.0_z2.0_t20.0s_initpsi0deg_rate15dps_50hz_8col.npy", 
-        # default = "circle_trajectory_8col_50hz.npy",
-        help="Name of the .npy trajectory file in 'mlac_sim/traj_data/' folder to be used by mlac_mission_node."
-
-    )
-    parser.add_argument(
-        "--trajectory_index",
-        type=int,
-        # default="setpoint_hold_x1.0_y1.0_z4.0_t20.0s_50hz_8col.npy", # Default to your new setpoint trajectory
-        default = 0,
-        help="index of the trajectory in the .npy file (if multiple) to be used by mlac_mission_node."
-    )
-    parser.add_argument(
-        "--controller_type",
-        type=str,
-        default="pid", 
-        help="Type of controller to be used by mlac_mission_node (e.g., pid, coml, coml_debug)."
-    )
-    parser.add_argument(
-        "--control_level",
-        type=str,
-        default="bodyrate",
-        help="Control level to be used by mlac_mission_node (e.g., attitude, bodyrate)."
-    )
-    parser.add_argument(
-        "--bodyrate_kp",
-        type=float,
-        default=0.0,
-        help="Proportional gains for bodyrate control."
-    )
-
-
+    parser.add_argument("mission_description", type=str,
+                        help="Brief description of the test (logged with rosbag).")
+    parser.add_argument("--directory", type=str, default="ST",
+                        choices=["ST", "Kai"],
+                        help="Directory preset: ST (Sunbochen) or Kai.")
+    parser.add_argument("--trajectory_file", type=str,
+                        default="diagnostic_50hz_11col.npy",
+                        help="Trajectory .npy filename in mlac_sim/traj_data/.")
+    parser.add_argument("--trajectory_index", type=int, default=0,
+                        help="Trajectory index within the .npy file.")
+    parser.add_argument("--controller_type", type=str, default="pid",
+                        help="Controller type (pid, coml, coml_debug).")
+    parser.add_argument("--control_level", type=str, default="bodyrate",
+                        help="Control level (attitude, bodyrate).")
+    parser.add_argument("--bodyrate_kp", nargs='+', type=float,
+                        default=[0.3, 0.3, 0.3],
+                        help="Bodyrate proportional gains (e.g., --bodyrate_kp 0.3 0.3 0.3).")
+    parser.add_argument("--world_name", type=str, default="default",
+                        help="Gazebo world name (e.g., default, windy_test).")
+    parser.add_argument("--auto_kill_duration_sec", type=int, default=0,
+                        help="Auto-kill after N seconds. 0 = attach to tmux instead.")
     args = parser.parse_args()
-    mission_desc_from_arg = args.mission_description
-    trajectory_file_name = args.trajectory_file
-    trajectory_index = args.trajectory_index
-    controller_type = args.controller_type
-    control_level = args.control_level
-    bodyrate_kp = args.bodyrate_kp
 
-    session = "mlac_sim_main" # Changed session name slightly
-    
-    ros2_ws_path = os.path.expanduser("~/mlac_ijrr/mlac_px4/ros2_px4_ws")   # Kai's path to the ROS 2 workspace
-    px4_src_path = os.path.expanduser("~/PX4-Autopilot")                    # Kai's PX4 source path
-    venv_path = os.path.expanduser("~/mlac_ijrr/mlac_px4/mlac_env")         # Kai's virtual environment path
+    # --- Directory presets ---
+    if args.directory == "Kai":
+        ros2_ws_path = os.path.expanduser("~/mlac_ijrr/mlac_px4/ros2_px4_ws")
+        px4_src_path = os.path.expanduser("~/PX4-Autopilot")
+        venv_path = os.path.expanduser("~/mlac_ijrr/mlac_px4/mlac_env")
+        QGC_name = "QGroundControl-x86_64.AppImage"
+    else:  # ST
+        ros2_ws_path = os.path.expanduser("~/mlac_px4/ros2_px4_ws")
+        px4_src_path = os.path.expanduser("~/mlac_px4/px4_src/PX4-Autopilot")
+        venv_path = os.path.expanduser("~/mlac_px4/mlac_env")
+        QGC_name = "../QGroundControl.AppImage"
 
-    # --- Bagging and Logging Setup ---
+    # --- Rosbag setup ---
     now = datetime.datetime.now()
-    timestamp_for_bag_dir = now.strftime("%m%d_%H%M%S")
-    bag_directory_name = f"rosbag_{timestamp_for_bag_dir}" # Include description in folder name
-    
-    base_bag_and_log_path = os.path.join(ros2_ws_path, "rosbag_data")
-    full_bag_output_path = os.path.join(base_bag_and_log_path, bag_directory_name) # This is the argument for ros2 bag record -o
-    info_log_file_path = os.path.join(base_bag_and_log_path, "missions_log.txt") # General log file
+    timestamp = now.strftime("%m%d_%H%M%S")
+    bag_dir_name = f"bodyrate_diag_{timestamp}"
 
-    print(f"Generated bag path for this run: {full_bag_output_path}")
-    print(f"Mission log file: {info_log_file_path}")
+    base_bag_path = os.path.join(ros2_ws_path, "rosbag_data")
+    full_bag_path = os.path.join(base_bag_path, bag_dir_name)
+    log_file = os.path.join(base_bag_path, "bodyrate_diag_log.txt")
 
-    log_mission_details(info_log_file_path, mission_desc_from_arg, bag_directory_name)
+    print(f"Rosbag output: {full_bag_path}")
+    log_mission_details(log_file, args.mission_description, bag_dir_name)
 
-    # --- Define Commands for TMUX Panes ---
+    bodyrate_kp_str = str(args.bodyrate_kp)
 
-    # Command for Pane running mlac_mission_node
-    mlac_node_command = (
-        f"sleep 20; "
-        f"echo '>>> Preparing to run mlac_mission_node...'; "
-        f"echo 'Activating virtual environment ({venv_path})...' && "
-        f"source {venv_path}/bin/activate && "
-        f"echo 'Sourcing ROS 2 workspace ({ros2_ws_path})...' && "
-        f"source {ros2_ws_path}/install/setup.bash && "
-        f"echo 'Exporting PYTHONPATH with venv site-packages...' && "
-        f"export PYTHONPATH=\"{venv_path}/lib/python3.10/site-packages${{PYTHONPATH:+:$PYTHONPATH}}\" && "
-        f"echo 'Running mlac_mission_node...' && "
-        f"ros2 run mlac_sim mlac_mission_node --ros-args \
-            -p controller_type:='{controller_type}' \
-            -p control_level:='{control_level}' \
-            -p bodyrate_kp:={bodyrate_kp} \
-            -p trajectory_file_name:={trajectory_file_name} \
-            -p trajectory_index:={trajectory_index} ; "
-        f"echo 'mlac_mission_node pane exited.'; exec bash"
+    # --- Pane commands ---
+
+    # Pane 0: PX4 SITL
+    px4_cmd = (
+        f"echo '>>> Starting PX4 SITL (gz_x500, world: {args.world_name})...'; "
+        f"cd {px4_src_path} && PX4_GZ_WORLD={args.world_name} make px4_sitl gz_x500; "
+        f"echo 'PX4 SITL exited.'; exec bash"
     )
 
-    # Command to set MAVLink stream rates
-    set_stream_rates_command = (
-        f"sleep 25; "
-        f"echo '>>> Attempting to set MAVLink stream rates...'; "
-        f"source {ros2_ws_path}/install/setup.bash && "
-        f"echo 'Setting LOCAL_POSITION_NED (ID 32) to 50Hz...' && "
-        f"ros2 service call /mavros/set_message_interval mavros_msgs/srv/MessageInterval '{{message_id: 32, message_rate: 50.0}}' && "
-        f"sleep 0.5 && "
-        # AttitudeTarget (83) is what we send, MAVROS should handle its rate. Let's monitor actual attitude.
-        f"echo 'Setting ATTITUDE (ID 30) to 50Hz...' && "
-        f"ros2 service call /mavros/set_message_interval mavros_msgs/srv/MessageInterval '{{message_id: 30, message_rate: 50.0}}' && "
-        f"echo 'Finished setting stream rates.'; "
-        f"exec bash"
-    )
-    
-    # Command for a general-purpose command pane
-    command_pane_setup = (
+    # Pane 1: MAVROS
+    mavros_cmd = (
         f"sleep 5; "
-        f"echo '>>> Sourcing workspace & venv for mission commands...'; "
+        f"echo '>>> Launching MAVROS...'; "
         f"source {ros2_ws_path}/install/setup.bash && "
-        f"source {venv_path}/bin/activate && "
-        f"echo 'Workspace sourced. Ready for mission commands (e.g., ros2 topic pub /mission_control/command ...).'; "
-        f"exec bash"
+        f"ros2 launch mavros px4.launch fcu_url:=udp://:14540@localhost:14557; "
+        f"echo 'MAVROS exited.'; exec bash"
     )
 
-    # Command for ROS Bag Recording
-    # Key topics: MAVROS state, local position, our attitude setpoints, our controller log, TF transforms
-    topics_to_record = [
+    # Pane 2: mlac_mission_node
+    mlac_cmd = (
+        f"sleep 10; "
+        f"echo '>>> Launching mlac_mission_node...'; "
+        f"source {venv_path}/bin/activate && "
+        f"source {ros2_ws_path}/install/setup.bash && "
+        f"export PYTHONPATH=\"{venv_path}/lib/python3.10/site-packages${{PYTHONPATH:+:$PYTHONPATH}}\" && "
+        f"ros2 run mlac_sim mlac_mission_node --ros-args "
+        f"-p controller_type:='{args.controller_type}' "
+        f"-p control_level:='{args.control_level}' "
+        f"-p bodyrate_kp:='{bodyrate_kp_str}' "
+        f"-p trajectory_file_name:='{args.trajectory_file}' "
+        f"-p trajectory_index:={args.trajectory_index}; "
+        f"echo 'mlac_mission_node exited.'; exec bash"
+    )
+
+    # Pane 3: Set MAVLink stream rates
+    stream_cmd = (
+        f"sleep 10; "
+        f"echo '>>> Setting MAVLink stream rates...'; "
+        f"source {ros2_ws_path}/install/setup.bash && "
+        f"ros2 service call /mavros/set_message_interval "
+        f"mavros_msgs/srv/MessageInterval '{{message_id: 32, message_rate: 50.0}}' && "
+        f"sleep 0.5 && "
+        f"ros2 service call /mavros/set_message_interval "
+        f"mavros_msgs/srv/MessageInterval '{{message_id: 30, message_rate: 50.0}}' && "
+        f"echo 'Stream rates set.'; exec bash"
+    )
+
+    # Pane 4: Rosbag recording
+    topics = [
         "/mavros/state",
         "/mavros/local_position/pose",
-        "/mavros/local_position/velocity_body", # Or velocity_local_ned if preferred
-        "/mavros/attitude", # Actual vehicle attitude from PX4
-        "/mavros/setpoint_raw/attitude", # What mlac_node sends to MAVROS
-        f"/mlac_mission_node/control_log", # Custom log from your mlac_node
-        f"/mlac_mission_node/trajectory_complete_status", # FSM status
-        "/mission_control/command", # Commands sent to the FSM
-        # "/tf",
-        # "/tf_static"
+        "/mavros/local_position/velocity_body",
+        "/mavros/attitude",
+        "/mavros/setpoint_raw/attitude",
+        "/mavros/setpoint_raw/target_attitude",
+        "/mlac_mission_node/control_log",
+        "/mlac_mission_node/trajectory_complete_status",
+        "/mission_control/command",
     ]
-    rosbag_command = (
-        f"sleep 30; " # Ensure other nodes are up
-        f"echo '>>> Preparing to record ROS bag data to {full_bag_output_path}...'; "
+    rosbag_cmd = (
+        f"sleep 25; "
+        f"echo '>>> Recording rosbag to {full_bag_path}...'; "
         f"source {ros2_ws_path}/install/setup.bash && "
-        f"echo 'Starting ros2 bag record...' && "
-        f"ros2 bag record -o {full_bag_output_path} {' '.join(topics_to_record)}; "
-        f"echo 'ros2 bag record pane exited.'; exec bash"
+        f"ros2 bag record -o {full_bag_path} {' '.join(topics)}; "
+        f"echo 'Rosbag recording exited.'; exec bash"
     )
 
-    commands_to_run = [
-        # Pane 0: Start PX4 SITL
-        f"echo '>>> Starting PX4 SITL (gz_x500)...'; cd {px4_src_path} && make px4_sitl gz_x500; echo 'PX4 SITL pane exited.'; exec bash",
+    # Pane 5: QGroundControl
+    qgc_cmd = (
+        f"sleep 15; "
+        f"echo '>>> Launching QGroundControl...'; "
+        f"cd {px4_src_path} && ./{QGC_name}; "
+        f"echo 'QGC exited.'; exec bash"
+    )
 
-        # Pane 1: Launch MAVROS
-        f"sleep 15; echo '>>> Launching MAVROS...'; source {ros2_ws_path}/install/setup.bash && ros2 launch mavros px4.launch fcu_url:=udp://:14540@localhost:14557; echo 'MAVROS pane exited.'; exec bash",
+    # Pane 6: Auto flight initiation (START_MISSION → ARM → OFFBOARD)
+    flight_cmd = (
+        f"sleep 20; "
+        f"echo '>>> Initiating flight sequence...'; "
+        f"source {ros2_ws_path}/install/setup.bash && "
+        f"echo 'Sending START_MISSION...' && "
+        f"ros2 topic pub --once /mission_control/command std_msgs/msg/String '{{data: \"START_MISSION\"}}' && "
+        f"sleep 5 && "
+        f"echo 'Arming...' && "
+        f"ros2 service call /mavros/cmd/arming mavros_msgs/srv/CommandBool '{{value: true}}' && "
+        f"sleep 2 && "
+        f"echo 'Setting OFFBOARD mode...' && "
+        f"ros2 service call /mavros/set_mode mavros_msgs/srv/SetMode '{{custom_mode: \"OFFBOARD\"}}'; "
+        f"echo 'Flight initiation done.'; exec bash"
+    )
 
-        # Pane 2: Run your mlac_mission_node
-        mlac_node_command,
-        
-        # Pane 3: Set MAVLink Stream Rates
-        # set_stream_rates_command,
+    # Pane 7: General command pane
+    general_cmd = (
+        f"sleep 5; "
+        f"source {ros2_ws_path}/install/setup.bash && "
+        f"source {venv_path}/bin/activate && "
+        f"echo 'Ready for commands.'; exec bash"
+    )
 
-        # Pane 4: Record ROS Bag Data
-        rosbag_command,
-
-        # Pane 5: General command pane for sending mission commands etc.
-        command_pane_setup,
-        
-        # Pane 6: Launch QGroundControl
-        f"sleep 15; echo '>>> Launching QGroundControl...'; cd {px4_src_path} && ./QGroundControl-x86_64.AppImage; echo 'QGC pane exited.'; exec bash", # Assuming QGC is in ~/mlac_px4/
+    commands = [
+        px4_cmd,        # 0: PX4 SITL
+        mavros_cmd,     # 1: MAVROS
+        mlac_cmd,       # 2: mlac_mission_node
+        stream_cmd,     # 3: MAVLink stream rates
+        rosbag_cmd,     # 4: Rosbag
+        qgc_cmd,        # 5: QGroundControl
+        flight_cmd,     # 6: Auto flight init
+        general_cmd,    # 7: General commands
     ]
 
-    # Filter out any None commands if you conditionally add them (not strictly needed here)
-    commands_to_run = [cmd for cmd in commands_to_run if cmd]
-    
-    if len(commands_to_run) > 7: # Current splitting logic is for up to 7
-        print(f"Warning: Pane splitting logic is explicitly defined for up to 7 panes. You have {len(commands_to_run)} commands.")
-
-    run_tmux_commands(session, commands_to_run)
+    session = "bodyrate_diag"
+    run_tmux_commands(session, commands, auto_kill_duration_sec=args.auto_kill_duration_sec)
